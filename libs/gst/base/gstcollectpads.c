@@ -726,7 +726,7 @@ unknown_pad:
 }
 
 /*
- * Must be called with STREAM_LOCK.
+ * Must be called with STREAM_LOCK and OBJECT_LOCK.
  */
 static void
 gst_collect_pads_set_flushing_unlocked (GstCollectPads * pads,
@@ -735,7 +735,7 @@ gst_collect_pads_set_flushing_unlocked (GstCollectPads * pads,
   GSList *walk = NULL;
 
   /* Update the pads flushing flag */
-  for (walk = pads->data; walk; walk = g_slist_next (walk)) {
+  for (walk = pads->priv->pad_list; walk; walk = g_slist_next (walk)) {
     GstCollectData *cdata = walk->data;
 
     if (GST_IS_PAD (cdata->pad)) {
@@ -778,7 +778,9 @@ gst_collect_pads_set_flushing (GstCollectPads * pads, gboolean flushing)
 
   /* NOTE since this eventually calls _pop, some (STREAM_)LOCK is needed here */
   GST_COLLECT_PADS_STREAM_LOCK (pads);
+  GST_OBJECT_LOCK (pads);
   gst_collect_pads_set_flushing_unlocked (pads, flushing);
+  GST_OBJECT_UNLOCK (pads);
   GST_COLLECT_PADS_STREAM_UNLOCK (pads);
 }
 
@@ -2068,7 +2070,9 @@ gst_collect_pads_chain (GstPad * pad, GstObject * parent, GstBuffer * buffer)
 
 unlock_done:
   GST_COLLECT_PADS_STREAM_UNLOCK (pads);
-  unref_data (data);
+  /* data is definitely NULL if pad_removed goto was run. */
+  if (data)
+    unref_data (data);
   if (buffer)
     gst_buffer_unref (buffer);
   return ret;
