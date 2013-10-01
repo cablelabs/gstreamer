@@ -282,6 +282,7 @@ GST_META_TRANSFORM_IS_COPY
 gst_meta_api_type_register
 gst_meta_api_type_has_tag
 GST_META_TAG_MEMORY
+GST_META_TAG_MEMORY_STR
 gst_meta_register
 gst_meta_get_info
 <SUBSECTION Standard>
@@ -677,6 +678,9 @@ gst_context_new
 gst_context_ref
 gst_context_unref
 gst_context_copy
+gst_context_get_context_type
+gst_context_has_context_type
+gst_context_is_persistent
 gst_context_get_structure
 gst_context_writable_structure
 gst_context_make_writable
@@ -823,7 +827,6 @@ gst_element_get_start_time
 gst_element_set_bus
 gst_element_get_bus
 gst_element_set_context
-gst_element_get_context
 gst_element_get_factory
 gst_element_set_name
 gst_element_get_name
@@ -1100,9 +1103,6 @@ gst_event_parse_toc_select
 
 gst_event_new_segment_done
 gst_event_parse_segment_done
-
-gst_event_new_context
-gst_event_parse_context
 <SUBSECTION Standard>
 GstEventClass
 GST_EVENT
@@ -1554,9 +1554,7 @@ gst_message_new_progress
 gst_message_parse_progress
 
 gst_message_new_need_context
-gst_message_add_context_type
-gst_message_get_n_context_types
-gst_message_parse_nth_context_type
+gst_message_parse_context_type
 gst_message_new_have_context
 gst_message_parse_have_context
 
@@ -2381,10 +2379,7 @@ gst_query_new_drain
 gst_query_new_context
 gst_query_set_context
 gst_query_parse_context
-gst_query_add_context_type
-gst_query_get_n_context_types
-gst_query_parse_nth_context_type
-gst_query_has_context_type
+gst_query_parse_context_type
 <SUBSECTION Standard>
 GstQueryClass
 GST_QUERY

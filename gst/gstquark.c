@@ -66,8 +66,8 @@ static const gchar *_quark_strings[] = {
   "GstMessageResetTime",
   "GstMessageToc", "GstEventTocGlobal", "GstEventTocCurrent",
   "GstEventSegmentDone",
-  "GstEventStreamStart", "stream-id", "GstEventContext", "GstQueryContext",
-  "GstMessageNeedContext", "GstMessageHaveContext", "context", "context-types",
+  "GstEventStreamStart", "stream-id", "GstQueryContext",
+  "GstMessageNeedContext", "GstMessageHaveContext", "context", "context-type",
   "GstMessageStreamStart", "group-id", "uri-redirection"
 };
 
