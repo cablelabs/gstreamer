@@ -1,8 +1,8 @@
 
-Release notes for GStreamer 1.1.4
+Release notes for GStreamer 1.2.0
 
 
-The GStreamer team is proud to announce a new bug-fix release
+The GStreamer team is proud to announce a new feature release
 in the 1.x stable series of the
 core of the GStreamer streaming media framework.
 
@@ -42,21 +42,10 @@ contains a set of codecs plugins based on libav (formerly gst-ffmpeg)
 
 Bugs fixed in this release
      
-      * 701996 : context: Still inconvenient to use and racy
-      * 705835 : queue: Keeps sticky events around after pad deactivation
-      * 704927 : queue2: forward the upstream scheduling flags
-      * 704934 : Clarify the gst buffer query api documentation slightly
-      * 705156 : Small fixes to get make check to finish
-      * 705332 : queue2: global state is affected by buffery query handling
-      * 705350 : automake 1.14 warns very verbosely about subdir-objects
-      * 705621 : baseparse: Add a property to force processing
-      * 705694 : dataqueue: add gst_data_queue_push_force
-      * 705999 : taglist: handle publisher, interpreted-by and key tags
-      * 706160 : query: crash when parsing uri redirection
-      * 706162 : gst_buffer_memcmp() ignores the buffer size if it goes past the gstbuffer
-      * 706360 : queue2: test_simple_shutdown_while_running fails/racy
-      * 706454 : Sample: add gst_sample_copy function
-      * 706600 : basetransform: Don't push out identical caps
+      * 706551 : gsttestclock check failed
+      * 708605 : testclock: Does not handle unscheduled entries correctly
+      * 708636 : collectpads: Should set *all* its pads to flushing when set_flushing is called, not only the ones in the public list
+      * 708668 : context: Potential regression
 
 ==== Download ====
 
@@ -93,23 +82,10 @@ subscribe to the gstreamer-devel list.
         
 Contributors to this release
     
-      * Adrian Pardini
-      * Alessandro Decina
-      * Andoni Morales Alastruey
-      * Arnaud Vrac
-      * Brendan Long
+      * Alex Ashley
       * Edward Hervey
-      * Jonas Holmberg
-      * Kerrick Staley
-      * Kjartan Maraas
-      * Lubosz Sarnecki
-      * Matthieu Bouron
-      * Nicolas Dufresne
-      * Olivier Crête
+      * Mathieu Duponchelle
       * Sebastian Dröge
-      * Sjoerd Simons
-      * Thiago Santos
       * Tim-Philipp Müller
       * Wim Taymans
-      * Wonchul Lee
  

@@ -1,6 +1,7 @@
 /* GStreamer
  * Copyright (C) 2013 Collabora Ltd.
  *   Author: Sebastian Dröge <sebastian.droege@collabora.co.uk>
+ * Copyright (C) 2013 Sebastian Dröge <slomo@circular-chaos.org>
  *
  * gstcontext.h: Header for GstContext subsystem
  *
@@ -38,17 +39,15 @@
  * order until one step succeeds:
  * 1) Check if the element already has a context
  * 2) Query downstream with GST_QUERY_CONTEXT for the context
+ * 2) Query upstream with GST_QUERY_CONTEXT for the context
  * 3) Post a GST_MESSAGE_NEED_CONTEXT message on the bus with the required
  *    context types and afterwards check if a usable context was set now
  * 4) Create a context by itself and post a GST_MESSAGE_HAVE_CONTEXT message
- *    and send a GST_EVENT_CONTEXT event downstream, containing the complete
- *    context information at this time.
+ *    on the bus.
  *
- * Applications should catch the GST_MESSAGE_HAVE_CONTEXT messages and remember
- * any content from it unless it has a custom version of a specific context. If
- * later an element is posting a GST_MESSAGE_NEED_CONTEXT message for a specific
- * context that was created by an element before, the application should pass it
- * to the element or the complete pipeline.
+ * Bins will catch GST_MESSAGE_NEED_CONTEXT messages and will set any previously
+ * known context on the element that asks for it if possible. Otherwise the
+ * application should provide one if it can.
  *
  * Since: 1.2
  */
@@ -62,7 +61,9 @@ struct _GstContext
 {
   GstMiniObject mini_object;
 
+  gchar *context_type;
   GstStructure *structure;
+  gboolean persistent;
 };
 
 #define GST_CONTEXT_STRUCTURE(c)  (((GstContext *)(c))->structure)
@@ -98,6 +99,7 @@ _gst_context_free (GstContext * context)
     gst_structure_set_parent_refcount (structure, NULL);
     gst_structure_free (structure);
   }
+  g_free (context->context_type);
 
   g_slice_free1 (sizeof (GstContext), context);
 }
@@ -117,10 +119,14 @@ _gst_context_copy (GstContext * context)
 
   gst_context_init (copy);
 
+  copy->context_type = g_strdup (context->context_type);
+
   structure = GST_CONTEXT_STRUCTURE (context);
   GST_CONTEXT_STRUCTURE (copy) = gst_structure_copy (structure);
   gst_structure_set_parent_refcount (GST_CONTEXT_STRUCTURE (copy),
       &copy->mini_object.refcount);
+
+  copy->persistent = context->persistent;
 
   return GST_CONTEXT_CAST (copy);
 }
@@ -135,6 +141,7 @@ gst_context_init (GstContext * context)
 
 /**
  * gst_context_new:
+ * @persistent: Persistent context
  *
  * Create a new context.
  *
@@ -143,10 +150,12 @@ gst_context_init (GstContext * context)
  * Since: 1.2
  */
 GstContext *
-gst_context_new (void)
+gst_context_new (const gchar * context_type, gboolean persistent)
 {
   GstContext *context;
   GstStructure *structure;
+
+  g_return_val_if_fail (context_type != NULL, NULL);
 
   context = g_slice_new0 (GstContext);
 
@@ -156,9 +165,50 @@ gst_context_new (void)
   gst_structure_set_parent_refcount (structure, &context->mini_object.refcount);
   gst_context_init (context);
 
+  context->context_type = g_strdup (context_type);
   GST_CONTEXT_STRUCTURE (context) = structure;
+  context->persistent = persistent;
 
   return context;
+}
+
+/**
+ * gst_context_get_context_type:
+ * @context: The #GstContext.
+ *
+ * Get the type of @context.
+ *
+ * Returns: The type of the context.
+ *
+ * Since: 1.2
+ */
+const gchar *
+gst_context_get_context_type (const GstContext * context)
+{
+  g_return_val_if_fail (GST_IS_CONTEXT (context), NULL);
+
+  return context->context_type;
+}
+
+/**
+ * gst_context_has_context_type:
+ * @context: The #GstContext.
+ * @context_type: Context type to check.
+ *
+ * Checks if @context has @context_type.
+ *
+ * Returns: %TRUE if @context has @context_type.
+ *
+ * Since: 1.2
+ */
+gboolean
+gst_context_has_context_type (const GstContext * context,
+    const gchar * context_type)
+{
+  g_return_val_if_fail (GST_IS_CONTEXT (context), FALSE);
+  g_return_val_if_fail (context_type != NULL, FALSE);
+
+  return strcmp (context->context_type, context_type) == 0;
 }
 
 /**
@@ -174,7 +224,7 @@ gst_context_new (void)
  * Since: 1.2
  */
 const GstStructure *
-gst_context_get_structure (GstContext * context)
+gst_context_get_structure (const GstContext * context)
 {
   g_return_val_if_fail (GST_IS_CONTEXT (context), NULL);
 
@@ -201,4 +251,22 @@ gst_context_writable_structure (GstContext * context)
   g_return_val_if_fail (gst_context_is_writable (context), NULL);
 
   return GST_CONTEXT_STRUCTURE (context);
+}
+
+/**
+ * gst_context_is_persistent:
+ * @context: The #GstContext.
+ *
+ * Check if @context is persistent.
+ *
+ * Returns: %TRUE if the context is persistent.
+ *
+ * Since: 1.2
+ */
+gboolean
+gst_context_is_persistent (const GstContext * context)
+{
+  g_return_val_if_fail (GST_IS_CONTEXT (context), FALSE);
+
+  return context->persistent;
 }

@@ -103,7 +103,7 @@ typedef enum {
  * @GST_QUERY_CAPS: the caps query
  * @GST_QUERY_DRAIN: wait till all serialized data is consumed downstream
  * @GST_QUERY_CONTEXT: query the pipeline-local context from
- *     downstream (since 1.2)
+ *     downstream or upstream (since 1.2)
  *
  * Standard predefined Query types
  */
@@ -128,7 +128,7 @@ typedef enum {
   GST_QUERY_ACCEPT_CAPS  = GST_QUERY_MAKE_TYPE (160, FLAG(BOTH)),
   GST_QUERY_CAPS         = GST_QUERY_MAKE_TYPE (170, FLAG(BOTH)),
   GST_QUERY_DRAIN        = GST_QUERY_MAKE_TYPE (180, FLAG(DOWNSTREAM) | FLAG(SERIALIZED)),
-  GST_QUERY_CONTEXT      = GST_QUERY_MAKE_TYPE (190, FLAG(DOWNSTREAM))
+  GST_QUERY_CONTEXT      = GST_QUERY_MAKE_TYPE (190, FLAG(BOTH))
 } GstQueryType;
 #undef FLAG
 
@@ -486,11 +486,8 @@ void            gst_query_parse_caps_result        (GstQuery *query, GstCaps **c
 GstQuery *      gst_query_new_drain                (void) G_GNUC_MALLOC;
 
 /* context query */
-GstQuery *      gst_query_new_context              (void) G_GNUC_MALLOC;
-void            gst_query_add_context_type         (GstQuery * query, const gchar * context_type);
-guint           gst_query_get_n_context_types      (GstQuery * query);
-gboolean        gst_query_parse_nth_context_type   (GstQuery * query, guint i, const gchar ** context_type);
-gboolean        gst_query_has_context_type         (GstQuery * query, const gchar * context_type);
+GstQuery *      gst_query_new_context              (const gchar * context_type) G_GNUC_MALLOC;
+gboolean        gst_query_parse_context_type       (GstQuery * query, const gchar ** context_type);
 void            gst_query_set_context              (GstQuery *query, GstContext *context);
 void            gst_query_parse_context            (GstQuery *query, GstContext **context);
 
