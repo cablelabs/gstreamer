@@ -390,7 +390,7 @@ gst_task_cleanup_all (void)
  * gst_task_set_lock() function. This lock will always be acquired while
  * @func is called.
  *
- * Returns: (transfer full): A new #GstTask.
+ * Returns: (transfer floating): A new #GstTask.
  *
  * MT safe.
  */

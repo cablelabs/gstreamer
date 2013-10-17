@@ -290,7 +290,7 @@ gst_collect_pads_finalize (GObject * object)
  *
  * MT safe.
  *
- * Returns: (transfer full): a new #GstCollectPads, or NULL in case of an error.
+ * Returns: (transfer floating): a new #GstCollectPads, or NULL in case of an error.
  */
 GstCollectPads *
 gst_collect_pads_new (void)
