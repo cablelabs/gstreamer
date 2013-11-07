@@ -398,6 +398,8 @@ _priv_gst_tag_initialize (void)
   gst_tag_register_static (GST_TAG_MIDI_BASE_NOTE, GST_TAG_FLAG_META,
       G_TYPE_UINT,
       _("midi-base-note"), _("Midi note number of the audio track."), NULL);
+  gst_tag_register_static (GST_TAG_TRACK_KIND, GST_TAG_FLAG_META,
+      G_TYPE_STRING, _("track-kind"), _("The HTML5 track kind"), NULL);
 }
 
 /**

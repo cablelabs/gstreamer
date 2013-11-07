@@ -1070,6 +1070,14 @@ gst_tag_list_copy (const GstTagList * taglist)
  * Since: 1.4
  */
 #define GST_TAG_MIDI_BASE_NOTE                    "midi-base-note"
+/**
+ * GST_TAG_TRACK_KIND:
+ *
+ * The HTML5 track kind. (string)
+ *
+ * Since: 1.5
+ */
+#define GST_TAG_TRACK_KIND "track-kind"
 
 G_END_DECLS
 
