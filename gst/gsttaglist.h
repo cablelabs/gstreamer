@@ -1060,6 +1060,15 @@ gst_tag_list_copy (const GstTagList * taglist)
  * Since: 1.2
  */
 #define GST_TAG_INTERPRETED_BY                    "interpreted-by"
+/**
+ * GST_TAG_TRACK_ID:
+ *
+ * The track ID. For example, the PID in MPEG-TS, or the TrackUID in Matroska.
+ * (string)
+ *
+ * Since: 1.3
+ */
+#define GST_TAG_TRACK_ID "track-id"
 
 G_END_DECLS
 
