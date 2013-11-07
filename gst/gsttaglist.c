@@ -396,6 +396,8 @@ _priv_gst_tag_initialize (void)
       _("interpreted-by"),
       _("Information about the people behind a remix and similar "
           "interpretations"), gst_tag_merge_strings_with_comma);
+  gst_tag_register_static (GST_TAG_TRACK_ID, GST_TAG_FLAG_META,
+      G_TYPE_STRING, _("track-id"), _("The track ID"), NULL);
 }
 
 /**
