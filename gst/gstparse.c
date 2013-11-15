@@ -207,7 +207,7 @@ _gst_parse_escape (const gchar * str)
  * @error will contain an error message if an erroneuos pipeline is specified.
  * An error does not mean that the pipeline could not be constructed.
  *
- * Returns: (transfer full): a new element on success and %NULL on failure.
+ * Returns: (transfer floating): a new element on success and %NULL on failure.
  */
 GstElement *
 gst_parse_launchv (const gchar ** argv, GError ** error)
@@ -227,7 +227,7 @@ gst_parse_launchv (const gchar ** argv, GError ** error)
  * @error will contain an error message if an erroneous pipeline is specified.
  * An error does not mean that the pipeline could not be constructed.
  *
- * Returns: (transfer full): a new element on success; on failure, either %NULL
+ * Returns: (transfer floating): a new element on success; on failure, either %NULL
  *   or a partially-constructed bin or element will be returned and @error will
  *   be set (unless you passed #GST_PARSE_FLAG_FATAL_ERRORS in @flags, then
  *   %NULL will always be returned on failure)
@@ -304,7 +304,7 @@ gst_parse_launch (const gchar * pipeline_description, GError ** error)
  * the @error is set. In this case there was a recoverable parsing error and you
  * can try to play the pipeline.
  *
- * Returns: (transfer full): a new element on success, %NULL on failure. If
+ * Returns: (transfer floating): a new element on success, %NULL on failure. If
  *    more than one toplevel element is specified by the @pipeline_description,
  *    all elements are put into a #GstPipeline, which then is returned.
  */
@@ -314,6 +314,7 @@ gst_parse_launch_full (const gchar * pipeline_description,
 {
 #ifndef GST_DISABLE_PARSE
   GstElement *element;
+  GError *myerror = NULL;
 
   g_return_val_if_fail (pipeline_description != NULL, NULL);
   g_return_val_if_fail (error == NULL || *error == NULL, NULL);
@@ -321,15 +322,19 @@ gst_parse_launch_full (const gchar * pipeline_description,
   GST_CAT_INFO (GST_CAT_PIPELINE, "parsing pipeline description '%s'",
       pipeline_description);
 
-  element = priv_gst_parse_launch (pipeline_description, error, context, flags);
+  element = priv_gst_parse_launch (pipeline_description, &myerror, context,
+      flags);
 
   /* don't return partially constructed pipeline if FATAL_ERRORS was given */
-  if (G_UNLIKELY (error != NULL && *error != NULL && element != NULL)) {
+  if (G_UNLIKELY (myerror != NULL && element != NULL)) {
     if ((flags & GST_PARSE_FLAG_FATAL_ERRORS)) {
       gst_object_unref (element);
       element = NULL;
     }
   }
+
+  if (myerror)
+    g_propagate_error (error, myerror);
 
   return element;
 #else
