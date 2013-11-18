@@ -227,10 +227,11 @@ G_STMT_START {                                                              \
 static gboolean
 gst_registry_chunks_save_feature (GList ** list, GstPluginFeature * feature)
 {
-  const gchar *type_name = g_type_name (G_OBJECT_TYPE (feature));
+  const gchar *type_name = G_OBJECT_TYPE_NAME (feature);
   GstRegistryChunkPluginFeature *pf = NULL;
   GstRegistryChunk *chk = NULL;
   GList *walk;
+  gsize pf_size = 0;
 
   if (!type_name) {
     GST_ERROR ("NULL feature type_name, aborting.");
@@ -245,9 +246,8 @@ gst_registry_chunks_save_feature (GList ** list, GstPluginFeature * feature)
      * valgrind complaining about copying unitialized memory
      */
     ef = g_slice_new0 (GstRegistryChunkElementFactory);
-    chk =
-        gst_registry_chunks_make_data (ef,
-        sizeof (GstRegistryChunkElementFactory));
+    pf_size = sizeof (GstRegistryChunkElementFactory);
+    chk = gst_registry_chunks_make_data (ef, pf_size);
     ef->npadtemplates = ef->ninterfaces = ef->nuriprotocols = 0;
     pf = (GstRegistryChunkPluginFeature *) ef;
 
@@ -256,8 +256,8 @@ gst_registry_chunks_save_feature (GList ** list, GstPluginFeature * feature)
         walk = g_list_next (walk), ef->ninterfaces++) {
       gst_registry_chunks_save_const_string (list, (gchar *) walk->data);
     }
-    GST_DEBUG ("Feature %s: saved %d interfaces %d pad templates",
-        GST_OBJECT_NAME (feature), ef->ninterfaces, ef->npadtemplates);
+    GST_DEBUG_OBJECT (feature, "saved %d interfaces %d pad templates",
+        ef->ninterfaces, ef->npadtemplates);
 
     /* save uritypes */
     if (GST_URI_TYPE_IS_VALID (factory->uri_type)) {
@@ -276,7 +276,7 @@ gst_registry_chunks_save_feature (GList ** list, GstPluginFeature * feature)
           ef->nuriprotocols++;
         }
         *list = g_list_prepend (*list, subchk);
-        GST_DEBUG ("Saved %d UriTypes", ef->nuriprotocols);
+        GST_DEBUG_OBJECT (feature, "Saved %d UriTypes", ef->nuriprotocols);
       } else {
         g_warning ("GStreamer feature '%s' is URI handler but does not provide"
             " any protocols it can handle", GST_OBJECT_NAME (feature));
@@ -289,7 +289,7 @@ gst_registry_chunks_save_feature (GList ** list, GstPluginFeature * feature)
       GstStaticPadTemplate *template = walk->data;
 
       if (!gst_registry_chunks_save_pad_template (list, template)) {
-        GST_ERROR ("Can't fill pad template, aborting.");
+        GST_ERROR_OBJECT (feature, "Can't fill pad template, aborting.");
         goto fail;
       }
     }
@@ -306,9 +306,8 @@ gst_registry_chunks_save_feature (GList ** list, GstPluginFeature * feature)
      * valgrind complaining about copying unitialized memory
      */
     tff = g_slice_new0 (GstRegistryChunkTypeFindFactory);
-    chk =
-        gst_registry_chunks_make_data (tff,
-        sizeof (GstRegistryChunkTypeFindFactory));
+    pf_size = sizeof (GstRegistryChunkTypeFindFactory);
+    chk = gst_registry_chunks_make_data (tff, pf_size);
     tff->nextensions = 0;
     pf = (GstRegistryChunkPluginFeature *) tff;
 
@@ -319,6 +318,7 @@ gst_registry_chunks_save_feature (GList ** list, GstPluginFeature * feature)
             factory->extensions[tff->nextensions++]);
       }
     }
+    GST_DEBUG_OBJECT (feature, "saved %d extensions", tff->nextensions);
     /* save caps */
     if (factory->caps) {
       GstCaps *fcaps = gst_caps_ref (factory->caps);
@@ -333,7 +333,7 @@ gst_registry_chunks_save_feature (GList ** list, GstPluginFeature * feature)
       gst_registry_chunks_save_const_string (list, "");
     }
   } else {
-    GST_WARNING ("unhandled feature type '%s'", type_name);
+    GST_WARNING_OBJECT (feature, "unhandled feature type '%s'", type_name);
   }
 
   if (pf) {
@@ -349,8 +349,8 @@ gst_registry_chunks_save_feature (GList ** list, GstPluginFeature * feature)
 
   /* Errors */
 fail:
-  g_free (chk);
-  g_free (pf);
+  g_slice_free (GstRegistryChunk, chk);
+  g_slice_free1 (pf_size, pf);
   return FALSE;
 }
 
@@ -465,8 +465,8 @@ _priv_gst_registry_chunks_save_plugin (GList ** list, GstRegistry * registry,
   /* Errors */
 fail:
   gst_plugin_feature_list_free (plugin_features);
-  g_free (chk);
-  g_free (pe);
+  g_slice_free (GstRegistryChunk, chk);
+  g_slice_free (GstRegistryChunkPluginElement, pe);
   return FALSE;
 }
 
