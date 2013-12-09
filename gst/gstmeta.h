@@ -83,6 +83,7 @@ typedef enum {
 
 /**
  * GST_META_TAG_MEMORY_STR:
+ *
  * This metadata stays relevant as long as memory layout is unchanged.
  *
  * Since: 1.2
@@ -174,8 +175,8 @@ typedef gboolean (*GstMetaTransformFunction) (GstBuffer *transbuf,
 
 /**
  * GstMetaInfo:
- * @api: tag indentifying the metadata structure and api
- * @type: type indentifying the implementor of the api
+ * @api: tag identifying the metadata structure and api
+ * @type: type identifying the implementor of the api
  * @size: size of the metadata
  * @init_func: function for initializing the metadata
  * @free_func: function for freeing the metadata

@@ -650,7 +650,7 @@ gst_caps_append_structure_full (GstCaps * caps, GstStructure * structure,
  * @caps: the #GstCaps to remove from
  * @idx: Index of the structure to remove
  *
- * removes the stucture with the given index from the list of structures
+ * removes the structure with the given index from the list of structures
  * contained in @caps.
  */
 void
@@ -866,7 +866,7 @@ gst_caps_get_features (const GstCaps * caps, guint index)
  * gst_caps_set_features:
  * @caps: a #GstCaps
  * @index: the index of the structure
- * @features: (allow-none) (transfer full): the #GstFeatures to set
+ * @features: (allow-none) (transfer full): the #GstCapsFeatures to set
  *
  * Sets the #GstCapsFeatures @features for the structure at @index.
  *

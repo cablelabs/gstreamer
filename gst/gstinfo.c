@@ -248,6 +248,9 @@ LevelNameEntry;
 static GMutex __cat_mutex;
 static GSList *__categories = NULL;
 
+static GstDebugCategory *_gst_debug_get_category_locked (const gchar * name);
+
+
 /* all registered debug handlers */
 typedef struct
 {
@@ -562,7 +565,7 @@ prettify_structure_string (gchar * str)
     if (count > MAX_BUFFER_DUMP_STRING_LEN) {
       memcpy (pos + MAX_BUFFER_DUMP_STRING_LEN - 6, "..", 2);
       memcpy (pos + MAX_BUFFER_DUMP_STRING_LEN - 4, pos + count - 4, 4);
-      g_memmove (pos + MAX_BUFFER_DUMP_STRING_LEN, pos + count,
+      memmove (pos + MAX_BUFFER_DUMP_STRING_LEN, pos + count,
           strlen (pos + count) + 1);
       pos += MAX_BUFFER_DUMP_STRING_LEN;
     }
@@ -1506,7 +1509,7 @@ GstDebugCategory *
 _gst_debug_category_new (const gchar * name, guint color,
     const gchar * description)
 {
-  GstDebugCategory *cat;
+  GstDebugCategory *cat, *catfound;
 
   g_return_val_if_fail (name != NULL, NULL);
 
@@ -1523,7 +1526,15 @@ _gst_debug_category_new (const gchar * name, guint color,
 
   /* add to category list */
   g_mutex_lock (&__cat_mutex);
-  __categories = g_slist_prepend (__categories, cat);
+  catfound = _gst_debug_get_category_locked (name);
+  if (catfound) {
+    g_free ((gpointer) cat->name);
+    g_free ((gpointer) cat->description);
+    g_slice_free (GstDebugCategory, cat);
+    cat = catfound;
+  } else {
+    __categories = g_slist_prepend (__categories, cat);
+  }
   g_mutex_unlock (&__cat_mutex);
 
   return cat;
@@ -1674,8 +1685,8 @@ gst_debug_get_all_categories (void)
   return ret;
 }
 
-GstDebugCategory *
-_gst_debug_get_category (const gchar * name)
+static GstDebugCategory *
+_gst_debug_get_category_locked (const gchar * name)
 {
   GstDebugCategory *ret = NULL;
   GSList *node;
@@ -1687,6 +1698,18 @@ _gst_debug_get_category (const gchar * name)
     }
   }
   return NULL;
+}
+
+GstDebugCategory *
+_gst_debug_get_category (const gchar * name)
+{
+  GstDebugCategory *ret;
+
+  g_mutex_lock (&__cat_mutex);
+  ret = _gst_debug_get_category_locked (name);
+  g_mutex_unlock (&__cat_mutex);
+
+  return ret;
 }
 
 static gboolean
@@ -1759,7 +1782,7 @@ parse_debug_level (gchar * str, GstDebugLevel * level)
  * the order matters when you use wild cards, e.g. "foosrc:6,*src:3,*:2" sets
  * everything to log level 2.
  *
- * Since: 1.2.0
+ * Since: 1.2
  */
 void
 gst_debug_set_threshold_from_string (const gchar * list, gboolean reset)
@@ -2153,7 +2176,7 @@ __gst_info_fallback_vasprintf (char **result, char const *format, va_list args)
       continue;
     }
     len = strlen (c + 4);
-    g_memmove (c + 2, c + 4, len + 1);
+    memmove (c + 2, c + 4, len + 1);
     c += 2;
   }
   while ((c = strstr (clean_format, "%P")))     /* old GST_PTR_FORMAT */

@@ -32,7 +32,7 @@
  *
  * Applications can set a context on a complete pipeline by using
  * gst_element_set_context(), which will then be propagated to all
- * child elements. Elements can handle these in GstElement::set_context()
+ * child elements. Elements can handle these in #GstElementClass.set_context()
  * and merge them with the context information they already have.
  *
  * When an element needs a context it will do the following actions in this
@@ -141,6 +141,7 @@ gst_context_init (GstContext * context)
 
 /**
  * gst_context_new:
+ * @context_type: Context type
  * @persistent: Persistent context
  *
  * Create a new context.

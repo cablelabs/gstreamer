@@ -25,9 +25,8 @@
  *
  * List of tags and values used to describe media metadata.
  *
- * Strings must be in ASCII or UTF-8 encoding. No other encodings are allowed.
- *
- * Last reviewed on 2009-06-09 (0.10.23)
+ * Strings in structures must be ASCII or UTF-8 encoded. Other encodings are
+ * not allowed. Strings must not be empty or NULL.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -475,7 +474,7 @@ gst_tag_lookup (const gchar * tag_name)
  *
  * Important: if you do not supply a merge function the implication will be
  * that there can only be one single value for this tag in a tag list and
- * any additional values will silenty be discarded when being added (unless
+ * any additional values will silently be discarded when being added (unless
  * #GST_TAG_MERGE_REPLACE, #GST_TAG_MERGE_REPLACE_ALL, or
  * #GST_TAG_MERGE_PREPEND is used as merge mode, in which case the new
  * value will replace the old one in the list).
@@ -1909,7 +1908,7 @@ gst_tag_list_get_date_index (const GstTagList * list,
  * Free-function: gst_date_time_unref
  *
  * Returns: TRUE, if a datetime was copied, FALSE if the tag didn't exist in
- *              thegiven list or if it was #NULL.
+ *              the given list or if it was #NULL.
  */
 gboolean
 gst_tag_list_get_date_time (const GstTagList * list, const gchar * tag,
@@ -2007,7 +2006,7 @@ gst_tag_list_get_sample (const GstTagList * list, const gchar * tag,
  *     pointer variable to store the result into
  *
  * Gets the sample that is at the given index for the given tag in the given
- * list and copies it into the variable pointed to by @smple. Free the sample
+ * list and copies it into the variable pointed to by @sample. Free the sample
  * with gst_sample_unref() when it is no longer needed. You can retrieve the
  * buffer from the sample using gst_sample_get_buffer() and the associated
  * caps (if any) with gst_sample_get_caps().

@@ -51,7 +51,7 @@
  * gst_structure_remove_fields().
  *
  * Strings in structures must be ASCII or UTF-8 encoded. Other encodings are
- * not allowed. Strings must not be empty either, but may be NULL.
+ * not allowed. Strings may be NULL however.
  *
  * Be aware that the current #GstCaps / #GstStructure serialization into string
  * has limited support for nested #GstCaps / #GstStructure fields. It can only
@@ -1821,7 +1821,7 @@ priv_gst_structure_append_to_gstring (const GstStructure * structure,
  * |[
  * GST_LOG ("structure is %" GST_PTR_FORMAT, structure);
  * ]|
- * This prints the structure in human readble form.
+ * This prints the structure in human readable form.
  *
  * The current implementation of serialization will lead to unexpected results
  * when there are nested #GstCaps / #GstStructure deeper than one level.
@@ -3115,7 +3115,7 @@ gst_structure_intersect_field2 (GQuark id, const GValue * val1, gpointer data)
  * @struct1: a #GstStructure
  * @struct2: a #GstStructure
  *
- * Interesects @struct1 and @struct2 and returns the intersection.
+ * Intersects @struct1 and @struct2 and returns the intersection.
  *
  * Returns: Intersection of @struct1 and @struct2
  */

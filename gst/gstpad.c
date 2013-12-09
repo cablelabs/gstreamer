@@ -47,7 +47,7 @@
  *
  * gst_pad_get_parent() will retrieve the #GstElement that owns the pad.
  *
- * After two pads are retrieved from an element with gst_element_get_pad(),
+ * After two pads are retrieved from an element by gst_element_get_static_pad(),
  * the pads can be linked with gst_pad_link(). (For quick links,
  * you can also use gst_element_link(), which will make the obvious
  * link for you if it's straightforward.). Pads can be unlinked again with
@@ -2830,8 +2830,16 @@ gst_pad_query_accept_caps_default (GstPad * pad, GstQuery * query)
   allowed = gst_pad_query_caps (pad, caps);
 
   if (allowed) {
-    GST_DEBUG_OBJECT (pad, "allowed caps %" GST_PTR_FORMAT, allowed);
-    result = gst_caps_is_subset (caps, allowed);
+    if (GST_PAD_IS_ACCEPT_INTERSECT (pad)) {
+      GST_DEBUG_OBJECT (pad,
+          "allowed caps intersect %" GST_PTR_FORMAT ", caps %" GST_PTR_FORMAT,
+          allowed, caps);
+      result = gst_caps_can_intersect (caps, allowed);
+    } else {
+      GST_DEBUG_OBJECT (pad, "allowed caps subset %" GST_PTR_FORMAT ", caps %"
+          GST_PTR_FORMAT, allowed, caps);
+      result = gst_caps_is_subset (caps, allowed);
+    }
     gst_caps_unref (allowed);
   } else {
     GST_DEBUG_OBJECT (pad, "no compatible caps allowed on the pad");
@@ -3779,7 +3787,7 @@ probe_stopped:
         ret = GST_FLOW_OK;
         break;
       default:
-        GST_DEBUG_OBJECT (pad, "an error occured %s", gst_flow_get_name (ret));
+        GST_DEBUG_OBJECT (pad, "an error occurred %s", gst_flow_get_name (ret));
         break;
     }
     return ret;
@@ -3805,7 +3813,7 @@ no_function:
  * The function returns #GST_FLOW_FLUSHING if the pad was flushing.
  *
  * If the buffer type is not acceptable for @pad (as negotiated with a
- * preceeding GST_EVENT_CAPS event), this function returns
+ * preceding GST_EVENT_CAPS event), this function returns
  * #GST_FLOW_NOT_NEGOTIATED.
  *
  * The function proceeds calling the chain function installed on @pad (see
@@ -4006,7 +4014,7 @@ probe_stopped:
         ret = GST_FLOW_OK;
         break;
       default:
-        GST_DEBUG_OBJECT (pad, "an error occured %s", gst_flow_get_name (ret));
+        GST_DEBUG_OBJECT (pad, "an error occurred %s", gst_flow_get_name (ret));
         break;
     }
     return ret;
@@ -4270,7 +4278,7 @@ get_range_failed:
  * When this function returns any other result value than #GST_FLOW_OK, @buffer
  * will be unchanged.
  *
- * This is a lowlevel function. Usualy gst_pad_pull_range() is used.
+ * This is a lowlevel function. Usually gst_pad_pull_range() is used.
  *
  * Returns: a #GstFlowReturn from the pad.
  *
@@ -4723,7 +4731,7 @@ probe_stopped:
         GST_DEBUG_OBJECT (pad, "dropped event");
         break;
       default:
-        GST_DEBUG_OBJECT (pad, "an error occured %s", gst_flow_get_name (ret));
+        GST_DEBUG_OBJECT (pad, "an error occurred %s", gst_flow_get_name (ret));
         break;
     }
     return ret;
@@ -4756,7 +4764,7 @@ idle_probe_stopped:
  * mainly used by elements to send events to their peer
  * elements.
  *
- * This function takes owership of the provided event so you should
+ * This function takes ownership of the provided event so you should
  * gst_event_ref() it if you want to reuse the event after this call.
  *
  * Returns: TRUE if the event was handled.
@@ -5066,7 +5074,7 @@ probe_stopped:
         ret = GST_FLOW_OK;
         break;
       default:
-        GST_DEBUG_OBJECT (pad, "an error occured %s", gst_flow_get_name (ret));
+        GST_DEBUG_OBJECT (pad, "an error occurred %s", gst_flow_get_name (ret));
         break;
     }
     return ret;
@@ -5124,7 +5132,7 @@ precheck_failed:
  * plugin doesn't need to bother itself with this information; the core handles
  * all necessary locks and checks.
  *
- * This function takes owership of the provided event so you should
+ * This function takes ownership of the provided event so you should
  * gst_event_ref() it if you want to reuse the event after this call.
  *
  * Returns: TRUE if the event was handled.
