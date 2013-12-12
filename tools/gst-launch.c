@@ -461,6 +461,10 @@ print_toc_entry (gpointer data, gpointer user_data)
 }
 
 #ifdef G_OS_UNIX
+static guint signal_watch_id;
+#endif
+
+#ifdef G_OS_UNIX
 /* As the interrupt handler is dispatched from GMainContext as a GSourceFunc
  * handler, we can react to this by posting a message. */
 static gboolean
@@ -477,6 +481,7 @@ intr_handler (gpointer user_data)
               "message", G_TYPE_STRING, "Pipeline interrupted", NULL)));
 
   /* remove signal handler */
+  signal_watch_id = 0;
   return FALSE;
 }
 
@@ -489,9 +494,6 @@ static EventLoopResult
 event_loop (GstElement * pipeline, gboolean blocking, gboolean do_progress,
     GstState target_state)
 {
-#ifdef G_OS_UNIX
-  guint signal_watch_id;
-#endif
   GstBus *bus;
   GstMessage *message = NULL;
   EventLoopResult res = ELR_NO_ERROR;
@@ -826,7 +828,8 @@ exit:
       gst_message_unref (message);
     gst_object_unref (bus);
 #ifdef G_OS_UNIX
-    g_source_remove (signal_watch_id);
+    if (signal_watch_id > 0)
+      g_source_remove (signal_watch_id);
 #endif
     return res;
   }
@@ -1044,6 +1047,7 @@ main (int argc, char *argv[])
         caught_error = event_loop (pipeline, TRUE, TRUE, GST_STATE_PAUSED);
         if (caught_error) {
           g_printerr (_("ERROR: pipeline doesn't want to preroll.\n"));
+          res = caught_error;
           goto end;
         }
         state = GST_STATE_PAUSED;
@@ -1057,6 +1061,7 @@ main (int argc, char *argv[])
 
     if (caught_error) {
       g_printerr (_("ERROR: pipeline doesn't want to preroll.\n"));
+      res = caught_error;
     } else {
       GstClockTime tfthen, tfnow;
       GstClockTimeDiff diff;
@@ -1105,10 +1110,12 @@ main (int argc, char *argv[])
           } else if (caught_error == ELR_INTERRUPT) {
             PRINT (_
                 ("Interrupt while waiting for EOS - stopping pipeline...\n"));
+            res = caught_error;
             break;
           } else if (caught_error == ELR_ERROR) {
             if (!ignore_errors) {
               PRINT (_("An error happened while waiting for EOS\n"));
+              res = caught_error;
               break;
             }
           }

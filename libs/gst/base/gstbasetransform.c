@@ -1558,7 +1558,7 @@ default_prepare_output_buffer (GstBaseTransform * trans,
 
   /* figure out how to allocate an output buffer */
   if (priv->passthrough) {
-    /* passthrough, we will not modify the incomming buffer so we can just
+    /* passthrough, we will not modify the incoming buffer so we can just
      * reuse it */
     GST_DEBUG_OBJECT (trans, "passthrough: reusing input buffer");
     *outbuf = inbuf;
@@ -2642,7 +2642,7 @@ gst_base_transform_set_gap_aware (GstBaseTransform * trans, gboolean gap_aware)
  * transform_caps vmethod.
  *
  * If set to %FALSE, the element must order the caps returned from the
- * transform_caps function in such a way that the prefered format is
+ * transform_caps function in such a way that the preferred format is
  * first in the list. This can be interesting for transforms that can do
  * passthrough transforms but prefer to do something else, like a
  * capsfilter.
@@ -2722,7 +2722,7 @@ gst_base_transform_get_buffer_pool (GstBaseTransform * trans)
  * @allocator: (out) (allow-none) (transfer full): the #GstAllocator
  * used
  * @params: (out) (allow-none) (transfer full): the
- * #GstAllocatorParams of @allocator
+ * #GstAllocationParams of @allocator
  *
  * Lets #GstBaseTransform sub-classes to know the memory @allocator
  * used by the base class and its @params.

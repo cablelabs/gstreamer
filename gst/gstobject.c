@@ -813,7 +813,7 @@ gst_object_has_ancestor (GstObject * object, GstObject * ancestor)
  * does not do any locking of any kind. You might want to protect the
  * provided list with the lock of the owner of the list. This function
  * will lock each #GstObject in the list to compare the name, so be
- * carefull when passing a list with a locked object.
+ * careful when passing a list with a locked object.
  *
  * Returns: TRUE if a #GstObject named @name does not appear in @list,
  * FALSE if it does.
@@ -921,7 +921,7 @@ gst_object_get_path_string (GstObject * object)
   path = g_strdup ("");
 
   /* first walk the object hierarchy to build a list of the parents,
-   * be carefull here with refcounting. */
+   * be careful here with refcounting. */
   do {
     if (GST_IS_OBJECT (object)) {
       parent = gst_object_get_parent (object);
@@ -1136,8 +1136,8 @@ gst_object_set_control_bindings_disabled (GstObject * object, gboolean disabled)
  * @disabled: boolean that specifies whether to disable the controller
  * or not.
  *
- * This function is used to disable the #GstController on a property for
- * some time, i.e. gst_controller_sync_values() will do nothing for the
+ * This function is used to disable the control bindings on a property for
+ * some time, i.e. gst_object_sync_values() will do nothing for the
  * property.
  */
 void

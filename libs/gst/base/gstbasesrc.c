@@ -763,6 +763,8 @@ gst_base_src_set_do_timestamp (GstBaseSrc * src, gboolean timestamp)
 
   GST_OBJECT_LOCK (src);
   src->priv->do_timestamp = timestamp;
+  if (timestamp && src->segment.format != GST_FORMAT_TIME)
+    gst_segment_init (&src->segment, GST_FORMAT_TIME);
   GST_OBJECT_UNLOCK (src);
 }
 
@@ -793,7 +795,7 @@ gst_base_src_get_do_timestamp (GstBaseSrc * src)
  * @src: The source
  * @start: The new start value for the segment
  * @stop: Stop value for the new segment
- * @time: The new time value for the start of the new segent
+ * @time: The new time value for the start of the new segment
  *
  * Prepare a new seamless segment for emission downstream. This function must
  * only be called by derived sub-classes, and only from the create() function,
@@ -3740,7 +3742,7 @@ gst_base_src_get_buffer_pool (GstBaseSrc * src)
  * @allocator: (out) (allow-none) (transfer full): the #GstAllocator
  * used
  * @params: (out) (allow-none) (transfer full): the
- * #GstAllocatorParams of @allocator
+ * #GstAllocationParams of @allocator
  *
  * Lets #GstBaseSrc sub-classes to know the memory @allocator
  * used by the base class and its @params.

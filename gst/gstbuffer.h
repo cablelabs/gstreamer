@@ -44,13 +44,13 @@ typedef struct _GstBufferPool GstBufferPool;
  * GST_BUFFER_FLAGS:
  * @buf: a #GstBuffer.
  *
- * A flags word containing #GstBufferFlag flags set on this buffer.
+ * A flags word containing #GstBufferFlags flags set on this buffer.
  */
 #define GST_BUFFER_FLAGS(buf)                   GST_MINI_OBJECT_FLAGS(buf)
 /**
  * GST_BUFFER_FLAG_IS_SET:
  * @buf: a #GstBuffer.
- * @flag: the #GstBufferFlag to check.
+ * @flag: the #GstBufferFlags flag to check.
  *
  * Gives the status of a specific flag on a buffer.
  */
@@ -58,7 +58,7 @@ typedef struct _GstBufferPool GstBufferPool;
 /**
  * GST_BUFFER_FLAG_SET:
  * @buf: a #GstBuffer.
- * @flag: the #GstBufferFlag to set.
+ * @flag: the #GstBufferFlags flag to set.
  *
  * Sets a buffer flag on a buffer.
  */
@@ -66,7 +66,7 @@ typedef struct _GstBufferPool GstBufferPool;
 /**
  * GST_BUFFER_FLAG_UNSET:
  * @buf: a #GstBuffer.
- * @flag: the #GstBufferFlag to clear.
+ * @flag: the #GstBufferFlags flag to clear.
  *
  * Clears a buffer flag.
  */
@@ -319,7 +319,7 @@ void        gst_buffer_extract_dup         (GstBuffer *buffer, gsize offset,
  *
  * Increases the refcount of the given buffer by one.
  *
- * Note that the refcount affects the writeability
+ * Note that the refcount affects the writability
  * of @buf and its metadata, see gst_buffer_is_writable().
  * It is important to note that keeping additional references to
  * GstBuffer instances can potentially increase the number

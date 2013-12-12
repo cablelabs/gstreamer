@@ -61,6 +61,8 @@ typedef enum {
   GST_PAD_MODE_PULL
 } GstPadMode;
 
+const gchar   * gst_pad_mode_get_name (GstPadMode mode);
+
 #include <gst/gstobject.h>
 #include <gst/gstbuffer.h>
 #include <gst/gstbufferlist.h>
@@ -131,7 +133,7 @@ typedef enum {
  * @GST_FLOW_FLUSHING:	         Pad is flushing.
  * @GST_FLOW_EOS:                Pad is EOS.
  * @GST_FLOW_NOT_NEGOTIATED:	 Pad is not negotiated.
- * @GST_FLOW_ERROR:		 Some (fatal) error occured. Element generating
+ * @GST_FLOW_ERROR:		 Some (fatal) error occurred. Element generating
  *                               this error should post an error message with more
  *                               details.
  * @GST_FLOW_NOT_SUPPORTED:	 This operation is not supported.
@@ -501,7 +503,7 @@ typedef enum
  * @GST_PAD_PROBE_DROP: drop data in data probes. For push mode this means that
  *        the data item is not sent downstream. For pull mode, it means that the
  *        data item is not passed upstream. In both cases, this result code
- *        returns #GST_FLOW_OK or %TRUE to the caller.
+ *        means that #GST_FLOW_OK or %TRUE is returned to the caller.
  * @GST_PAD_PROBE_REMOVE: remove probe
  * @GST_PAD_PROBE_PASS: pass the data item in the block probe and block on
  *                         the next item
@@ -609,8 +611,8 @@ typedef gboolean  (*GstPadStickyEventsForeachFunction) (GstPad *pad, GstEvent **
  *                            reconfiguration happened.
  * @GST_PAD_FLAG_PENDING_EVENTS: the pad has pending events
  * @GST_PAD_FLAG_FIXED_CAPS: the pad is using fixed caps this means that once the
- *                      caps are set on the pad, the caps query function only
- *                      returns those caps.
+ *                      caps are set on the pad, the caps query function will only
+ *                      return those caps.
  * @GST_PAD_FLAG_PROXY_CAPS: the default event and query handler will forward
  *                      all events and queries to the internally linked pads
  *                      instead of discarding them.
@@ -620,6 +622,10 @@ typedef gboolean  (*GstPadStickyEventsForeachFunction) (GstPad *pad, GstEvent **
  * @GST_PAD_FLAG_PROXY_SCHEDULING: the default query handler will forward
  *                      scheduling queries to the internally linked pads
  *                      instead of discarding them.
+ * @GST_PAD_FLAG_ACCEPT_INTERSECT: the default accept-caps handler will check
+ *                      it the caps intersect the query-caps result instead
+ *                      of checking for a subset. This is interesting for
+ *                      parsers that can accept incompletely specified caps.
  * @GST_PAD_FLAG_LAST: offset to define more flags
  *
  * Pad state flags
@@ -636,6 +642,7 @@ typedef enum {
   GST_PAD_FLAG_PROXY_CAPS       = (GST_OBJECT_FLAG_LAST << 8),
   GST_PAD_FLAG_PROXY_ALLOCATION = (GST_OBJECT_FLAG_LAST << 9),
   GST_PAD_FLAG_PROXY_SCHEDULING = (GST_OBJECT_FLAG_LAST << 10),
+  GST_PAD_FLAG_ACCEPT_INTERSECT = (GST_OBJECT_FLAG_LAST << 11),
   /* padding */
   GST_PAD_FLAG_LAST        = (GST_OBJECT_FLAG_LAST << 16)
 } GstPadFlags;
@@ -788,6 +795,10 @@ struct _GstPadClass {
 #define GST_PAD_IS_PROXY_SCHEDULING(pad)    (GST_OBJECT_FLAG_IS_SET (pad, GST_PAD_FLAG_PROXY_SCHEDULING))
 #define GST_PAD_SET_PROXY_SCHEDULING(pad)   (GST_OBJECT_FLAG_SET (pad, GST_PAD_FLAG_PROXY_SCHEDULING))
 #define GST_PAD_UNSET_PROXY_SCHEDULING(pad) (GST_OBJECT_FLAG_UNSET (pad, GST_PAD_FLAG_PROXY_SCHEDULING))
+
+#define GST_PAD_IS_ACCEPT_INTERSECT(pad)    (GST_OBJECT_FLAG_IS_SET (pad, GST_PAD_FLAG_ACCEPT_INTERSECT))
+#define GST_PAD_SET_ACCEPT_INTERSECT(pad)   (GST_OBJECT_FLAG_SET (pad, GST_PAD_FLAG_ACCEPT_INTERSECT))
+#define GST_PAD_UNSET_ACCEPT_INTERSECT(pad) (GST_OBJECT_FLAG_UNSET (pad, GST_PAD_FLAG_ACCEPT_INTERSECT))
 
 /**
  * GST_PAD_GET_STREAM_LOCK:
@@ -999,8 +1010,6 @@ gboolean		gst_pad_query_default			(GstPad *pad, GstObject *parent,
 /* misc helper functions */
 gboolean		gst_pad_forward                         (GstPad *pad, GstPadForwardFunction forward,
 								 gpointer user_data);
-
-const gchar   * gst_pad_mode_get_name (GstPadMode mode);
 
 G_END_DECLS
 
