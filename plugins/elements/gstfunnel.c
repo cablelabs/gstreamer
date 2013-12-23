@@ -120,6 +120,7 @@ gst_funnel_init (GstFunnel * funnel)
   funnel->srcpad = gst_pad_new_from_static_template (&funnel_src_template,
       "src");
   gst_pad_use_fixed_caps (funnel->srcpad);
+
   gst_element_add_pad (GST_ELEMENT (funnel), funnel->srcpad);
 }
 
@@ -137,6 +138,9 @@ gst_funnel_request_new_pad (GstElement * element, GstPadTemplate * templ,
       GST_DEBUG_FUNCPTR (gst_funnel_sink_chain));
   gst_pad_set_event_function (sinkpad,
       GST_DEBUG_FUNCPTR (gst_funnel_sink_event));
+
+  GST_OBJECT_FLAG_SET (sinkpad, GST_PAD_FLAG_PROXY_CAPS);
+  GST_OBJECT_FLAG_SET (sinkpad, GST_PAD_FLAG_PROXY_ALLOCATION);
 
   gst_pad_set_active (sinkpad, TRUE);
 
