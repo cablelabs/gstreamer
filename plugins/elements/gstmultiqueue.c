@@ -508,8 +508,11 @@ gst_multi_queue_set_property (GObject * object, guint prop_id,
         gst_data_queue_get_level (q->queue, &size);
 
         /* do not reduce max size below current level if the single queue has grown because of empty queue */
-        if (new_size >= size.visible && size.visible <= mq->max_size.visible)
+        if (new_size == 0) {
           q->max_size.visible = new_size;
+        } else if (new_size > size.visible) {
+          q->max_size.visible = new_size;
+        }
         tmp = g_list_next (tmp);
       };
 
@@ -740,6 +743,9 @@ gst_multi_queue_change_state (GstElement * element, GstStateChange transition)
         sq = (GstSingleQueue *) tmp->data;
         sq->flushing = TRUE;
         g_cond_signal (&sq->turn);
+
+        sq->last_query = FALSE;
+        g_cond_signal (&sq->query_handled);
       }
       GST_MULTI_QUEUE_MUTEX_UNLOCK (mqueue);
       break;
@@ -1897,6 +1903,8 @@ single_queue_overrun_cb (GstDataQueue * dq, GstSingleQueue * sq)
   GList *tmp;
   GstDataQueueSize size;
   gboolean filled = TRUE;
+  gboolean all_not_linked = TRUE;
+  gboolean empty_found = FALSE;
 
   gst_data_queue_get_level (sq->queue, &size);
 
@@ -1914,8 +1922,7 @@ single_queue_overrun_cb (GstDataQueue * dq, GstSingleQueue * sq)
     goto done;
   }
 
-  /* if hard limits are not reached then we allow one more buffer in the full
-   * queue, but only if any of the other singelqueues are empty */
+  /* Search for empty or unlinked queues */
   for (tmp = mq->queues; tmp; tmp = g_list_next (tmp)) {
     GstSingleQueue *oq = (GstSingleQueue *) tmp->data;
 
@@ -1927,18 +1934,28 @@ single_queue_overrun_cb (GstDataQueue * dq, GstSingleQueue * sq)
       continue;
     }
 
+    all_not_linked = FALSE;
     GST_LOG_OBJECT (mq, "Checking Queue %d", oq->id);
-
     if (gst_data_queue_is_empty (oq->queue)) {
       GST_LOG_OBJECT (mq, "Queue %d is empty", oq->id);
-      if (IS_FILLED (sq, visible, size.visible)) {
-        sq->max_size.visible = size.visible + 1;
-        GST_DEBUG_OBJECT (mq,
-            "Queue %d is empty, bumping single queue %d max visible to %d",
-            oq->id, sq->id, sq->max_size.visible);
-        filled = FALSE;
-        break;
-      }
+      empty_found = TRUE;
+      break;
+    }
+  }
+
+  /* if hard limits are not reached then we allow one more buffer in the full
+   * queue, but only if any of the other singelqueues are empty or all are
+   * not linked */
+  if (all_not_linked || empty_found) {
+    if (all_not_linked) {
+      GST_LOG_OBJECT (mq, "All other queues are not linked");
+    }
+    if (IS_FILLED (sq, visible, size.visible)) {
+      sq->max_size.visible = size.visible + 1;
+      GST_DEBUG_OBJECT (mq,
+          "Bumping single queue %d max visible to %d",
+          sq->id, sq->max_size.visible);
+      filled = FALSE;
     }
   }
 

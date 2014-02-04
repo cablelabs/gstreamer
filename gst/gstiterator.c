@@ -459,6 +459,7 @@ typedef struct _GstIteratorFilter
   GstIterator iterator;
   GstIterator *slave;
 
+  GMutex *master_lock;
   GCompareFunc func;
   GValue user_data;
   gboolean have_user_data;
@@ -475,15 +476,15 @@ filter_next (GstIteratorFilter * it, GValue * elem)
     result = gst_iterator_next (it->slave, &item);
     switch (result) {
       case GST_ITERATOR_OK:
-        if (G_LIKELY (GST_ITERATOR (it)->lock))
-          g_mutex_unlock (GST_ITERATOR (it)->lock);
+        if (G_LIKELY (it->master_lock))
+          g_mutex_unlock (it->master_lock);
         if (it->func (&item, &it->user_data) == 0) {
           g_value_copy (&item, elem);
           done = TRUE;
         }
         g_value_reset (&item);
-        if (G_LIKELY (GST_ITERATOR (it)->lock))
-          g_mutex_lock (GST_ITERATOR (it)->lock);
+        if (G_LIKELY (it->master_lock))
+          g_mutex_lock (it->master_lock);
         break;
       case GST_ITERATOR_RESYNC:
       case GST_ITERATOR_DONE:
@@ -502,6 +503,8 @@ static void
 filter_copy (const GstIteratorFilter * it, GstIteratorFilter * copy)
 {
   copy->slave = gst_iterator_copy (it->slave);
+  copy->master_lock = copy->slave->lock ? copy->slave->lock : it->master_lock;
+  copy->slave->lock = NULL;
 
   if (it->have_user_data) {
     memset (&copy->user_data, 0, sizeof (copy->user_data));
@@ -559,6 +562,7 @@ gst_iterator_filter (GstIterator * it, GCompareFunc func,
       (GstIteratorResyncFunction) filter_resync,
       (GstIteratorFreeFunction) filter_free);
 
+  result->master_lock = it->lock;
   it->lock = NULL;
   result->func = func;
   if (user_data) {

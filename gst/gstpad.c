@@ -547,6 +547,7 @@ restart:
     if (G_UNLIKELY (ev->event != ev_ret.event)) {
       if (G_UNLIKELY (ev_ret.event == NULL)) {
         /* function unreffed and set the event to NULL, remove it */
+        gst_event_unref (ev->event);
         g_array_remove_index (events, i);
         len--;
         cookie = ++pad->priv->events_cookie;
@@ -578,8 +579,9 @@ apply_pad_offset (GstPad * pad, GstEvent * event)
     gst_event_copy_segment (event, &segment);
     gst_event_unref (event);
 
-    /* adjust and make a new event with the offset applied */
-    segment.base += pad->offset;
+    GST_DEBUG_OBJECT (pad, "apply pad offset %" GST_TIME_FORMAT,
+        GST_TIME_ARGS (pad->offset));
+    gst_segment_offset_running_time (&segment, segment.format, pad->offset);
     event = gst_event_new_segment (&segment);
   }
   return event;
@@ -1180,6 +1182,34 @@ gst_pad_is_active (GstPad * pad)
   return result;
 }
 
+static void
+cleanup_hook (GstPad * pad, GHook * hook)
+{
+  GstPadProbeType type;
+
+  if (!G_HOOK_IS_VALID (hook))
+    return;
+
+  type = (hook->flags) >> G_HOOK_FLAG_USER_SHIFT;
+
+  if (type & GST_PAD_PROBE_TYPE_BLOCKING) {
+    /* unblock when we remove the last blocking probe */
+    pad->num_blocked--;
+    GST_DEBUG_OBJECT (pad, "remove blocking probe, now %d left",
+        pad->num_blocked);
+
+    /* Might have new probes now that want to be called */
+    GST_PAD_BLOCK_BROADCAST (pad);
+
+    if (pad->num_blocked == 0) {
+      GST_DEBUG_OBJECT (pad, "last blocking probe removed, unblocking");
+      GST_OBJECT_FLAG_UNSET (pad, GST_PAD_FLAG_BLOCKED);
+    }
+  }
+  g_hook_destroy_link (&pad->probes, hook);
+  pad->num_probes--;
+}
+
 /**
  * gst_pad_add_probe:
  * @pad: the #GstPad to add the probe to
@@ -1248,6 +1278,9 @@ gst_pad_add_probe (GstPad * pad, GstPadProbeType mask,
     GST_OBJECT_FLAG_SET (pad, GST_PAD_FLAG_BLOCKED);
     GST_CAT_LOG_OBJECT (GST_CAT_SCHEDULING, pad, "added blocking probe, "
         "now %d blocking probes", pad->num_blocked);
+
+    /* Might have new probes now that want to be called */
+    GST_PAD_BLOCK_BROADCAST (pad);
   }
 
   /* call the callback if we need to be called for idle callbacks */
@@ -1261,43 +1294,47 @@ gst_pad_add_probe (GstPad * pad, GstPadProbeType mask,
       GST_OBJECT_UNLOCK (pad);
     } else {
       GstPadProbeInfo info = { GST_PAD_PROBE_TYPE_IDLE, res, };
+      GstPadProbeReturn ret;
+
+      /* Keep another ref, the callback could destroy the pad */
+      gst_object_ref (pad);
 
       /* the pad is idle now, we can signal the idle callback now */
       GST_CAT_LOG_OBJECT (GST_CAT_SCHEDULING, pad,
           "pad is idle, trigger idle callback");
       GST_OBJECT_UNLOCK (pad);
 
-      callback (pad, &info, user_data);
+      ret = callback (pad, &info, user_data);
+
+      GST_OBJECT_LOCK (pad);
+      switch (ret) {
+        case GST_PAD_PROBE_REMOVE:
+          /* remove the probe */
+          GST_DEBUG_OBJECT (pad, "asked to remove hook");
+          cleanup_hook (pad, hook);
+          res = 0;
+          break;
+        case GST_PAD_PROBE_DROP:
+          GST_DEBUG_OBJECT (pad, "asked to drop item");
+          break;
+        case GST_PAD_PROBE_PASS:
+          GST_DEBUG_OBJECT (pad, "asked to pass item");
+          break;
+        case GST_PAD_PROBE_OK:
+          GST_DEBUG_OBJECT (pad, "probe returned OK");
+          break;
+        default:
+          GST_DEBUG_OBJECT (pad, "probe returned %d", ret);
+          break;
+      }
+      GST_OBJECT_UNLOCK (pad);
+
+      gst_object_unref (pad);
     }
   } else {
     GST_OBJECT_UNLOCK (pad);
   }
   return res;
-}
-
-static void
-cleanup_hook (GstPad * pad, GHook * hook)
-{
-  GstPadProbeType type;
-
-  if (!G_HOOK_IS_VALID (hook))
-    return;
-
-  type = (hook->flags) >> G_HOOK_FLAG_USER_SHIFT;
-
-  if (type & GST_PAD_PROBE_TYPE_BLOCKING) {
-    /* unblock when we remove the last blocking probe */
-    pad->num_blocked--;
-    GST_DEBUG_OBJECT (pad, "remove blocking probe, now %d left",
-        pad->num_blocked);
-    if (pad->num_blocked == 0) {
-      GST_DEBUG_OBJECT (pad, "last blocking probe removed, unblocking");
-      GST_OBJECT_FLAG_UNSET (pad, GST_PAD_FLAG_BLOCKED);
-      GST_PAD_BLOCK_BROADCAST (pad);
-    }
-  }
-  g_hook_destroy_link (&pad->probes, hook);
-  pad->num_probes--;
 }
 
 /**
@@ -3037,8 +3074,9 @@ probe_hook_marshal (GHook * hook, ProbeMarshall * data)
   flags = hook->flags >> G_HOOK_FLAG_USER_SHIFT;
   type = info->type;
 
-  /* one of the data types */
-  if ((flags & GST_PAD_PROBE_TYPE_ALL_BOTH & type) == 0)
+  /* one of the data types for non-idle probes */
+  if ((type & GST_PAD_PROBE_TYPE_IDLE) == 0
+      && (flags & GST_PAD_PROBE_TYPE_ALL_BOTH & type) == 0)
     goto no_match;
   /* one of the scheduling types */
   if ((flags & GST_PAD_PROBE_TYPE_SCHEDULING & type) == 0)
@@ -3046,6 +3084,9 @@ probe_hook_marshal (GHook * hook, ProbeMarshall * data)
   /* one of the blocking types must match */
   if ((type & GST_PAD_PROBE_TYPE_BLOCKING) &&
       (flags & GST_PAD_PROBE_TYPE_BLOCKING & type) == 0)
+    goto no_match;
+  if ((type & GST_PAD_PROBE_TYPE_BLOCKING) == 0 &&
+      (flags & GST_PAD_PROBE_TYPE_BLOCKING))
     goto no_match;
   /* only probes that have GST_PAD_PROBE_TYPE_EVENT_FLUSH set */
   if ((type & GST_PAD_PROBE_TYPE_EVENT_FLUSH) &&
@@ -3203,6 +3244,14 @@ again:
       GST_PAD_BLOCK_WAIT (pad);
       GST_OBJECT_FLAG_UNSET (pad, GST_PAD_FLAG_BLOCKING);
       GST_CAT_LOG_OBJECT (GST_CAT_SCHEDULING, pad, "We got unblocked");
+
+      /* if the list changed, call the new callbacks (they will not have their
+       * cookie set to data.cookie */
+      if (cookie != pad->priv->probe_list_cookie) {
+        GST_CAT_LOG_OBJECT (GST_CAT_SCHEDULING, pad,
+            "probe list changed, restarting");
+        goto again;
+      }
 
       if (G_UNLIKELY (GST_PAD_IS_FLUSHING (pad)))
         goto flushing;
@@ -3586,7 +3635,7 @@ gst_pad_peer_query (GstPad * pad, GstQuery * query)
   if (GST_PAD_IS_SRC (pad) && serialized) {
     /* all serialized queries on the srcpad trigger push of
      * sticky events */
-    if (!check_sticky (pad, NULL) == GST_FLOW_OK)
+    if (check_sticky (pad, NULL) != GST_FLOW_OK)
       goto sticky_failed;
   }
 

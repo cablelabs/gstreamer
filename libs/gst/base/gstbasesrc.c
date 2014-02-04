@@ -188,6 +188,12 @@ GST_DEBUG_CATEGORY_STATIC (gst_base_src_debug);
 #define GST_ASYNC_WAIT(elem)                  g_cond_wait (GST_ASYNC_GET_COND (elem), GST_OBJECT_GET_LOCK (elem))
 #define GST_ASYNC_SIGNAL(elem)                g_cond_signal (GST_ASYNC_GET_COND (elem));
 
+#define CLEAR_PENDING_EOS(bsrc) \
+  G_STMT_START { \
+    g_atomic_int_set (&bsrc->priv->has_pending_eos, FALSE); \
+    gst_event_replace (&bsrc->priv->pending_eos, NULL); \
+  } G_STMT_END
+
 
 /* BaseSrc signals and args */
 enum
@@ -230,7 +236,11 @@ struct _GstBaseSrcPrivate
   guint32 segment_seqnum;
 
   /* if EOS is pending (atomic) */
-  gint pending_eos;
+  GstEvent *pending_eos;
+  gint has_pending_eos;
+
+  /* if the eos was caused by a forced eos from the application */
+  gboolean forced_eos;
 
   /* startup latency is the time it takes between going to PLAYING and producing
    * the first BUFFER with running_time 0. This value is included in the latency
@@ -1729,7 +1739,12 @@ gst_base_src_send_event (GstElement * element, GstEvent * event)
       GST_LIVE_LOCK (src);
       src->priv->flushing = TRUE;
       /* clear pending EOS if any */
-      g_atomic_int_set (&src->priv->pending_eos, FALSE);
+      if (g_atomic_int_get (&src->priv->has_pending_eos)) {
+        GST_OBJECT_LOCK (src);
+        CLEAR_PENDING_EOS (src);
+        src->priv->forced_eos = FALSE;
+        GST_OBJECT_UNLOCK (src);
+      }
       if (bclass->unlock_stop)
         bclass->unlock_stop (src);
       if (src->clock_id)
@@ -1770,18 +1785,24 @@ gst_base_src_send_event (GstElement * element, GstEvent * event)
        *
        * We have two possibilities:
        *
-       *  - Before we are to enter the _create function, we check the pending_eos
+       *  - Before we are to enter the _create function, we check the has_pending_eos
        *    first and do EOS instead of entering it.
        *  - If we are in the _create function or we did not manage to set the
        *    flag fast enough and we are about to enter the _create function,
        *    we unlock it so that we exit with FLUSHING immediately. We then
        *    check the EOS flag and do the EOS logic.
        */
-      g_atomic_int_set (&src->priv->pending_eos, TRUE);
+      GST_OBJECT_LOCK (src);
+      g_atomic_int_set (&src->priv->has_pending_eos, TRUE);
+      if (src->priv->pending_eos)
+        gst_event_unref (src->priv->pending_eos);
+      src->priv->pending_eos = event;
+      event = NULL;
+      GST_OBJECT_UNLOCK (src);
+
       GST_DEBUG_OBJECT (src, "EOS marked, calling unlock");
 
-
-      /* unlock the _create function so that we can check the pending_eos flag
+      /* unlock the _create function so that we can check the has_pending_eos flag
        * and we can do EOS. This will eventually release the LIVE_LOCK again so
        * that we can grab it and stop the unlock again. We don't take the stream
        * lock so that this operation is guaranteed to never block. */
@@ -2385,9 +2406,11 @@ again:
   }
 
   /* don't enter the create function if a pending EOS event was set. For the
-   * logic of the pending_eos, check the event function of this class. */
-  if (G_UNLIKELY (g_atomic_int_get (&src->priv->pending_eos)))
+   * logic of the has_pending_eos, check the event function of this class. */
+  if (G_UNLIKELY (g_atomic_int_get (&src->priv->has_pending_eos))) {
+    src->priv->forced_eos = TRUE;
     goto eos;
+  }
 
   GST_DEBUG_OBJECT (src,
       "calling create offset %" G_GUINT64_FORMAT " length %u, time %"
@@ -2400,11 +2423,12 @@ again:
   /* The create function could be unlocked because we have a pending EOS. It's
    * possible that we have a valid buffer from create that we need to
    * discard when the create function returned _OK. */
-  if (G_UNLIKELY (g_atomic_int_get (&src->priv->pending_eos))) {
+  if (G_UNLIKELY (g_atomic_int_get (&src->priv->has_pending_eos))) {
     if (ret == GST_FLOW_OK) {
       if (*buf == NULL)
         gst_buffer_unref (res_buf);
     }
+    src->priv->forced_eos = TRUE;
     goto eos;
   }
 
@@ -2837,26 +2861,41 @@ pause:
       GstFormat format;
       gint64 position;
 
-      /* perform EOS logic */
       flag_segment = (src->segment.flags & GST_SEGMENT_FLAG_SEGMENT) != 0;
       format = src->segment.format;
       position = src->segment.position;
 
-      if (flag_segment) {
+      /* perform EOS logic */
+      if (src->priv->forced_eos) {
+        g_assert (g_atomic_int_get (&src->priv->has_pending_eos));
+        GST_OBJECT_LOCK (src);
+        event = src->priv->pending_eos;
+        src->priv->pending_eos = NULL;
+        GST_OBJECT_UNLOCK (src);
+
+      } else if (flag_segment) {
         GstMessage *message;
 
-        message = gst_message_new_segment_done (GST_OBJECT_CAST (src),
-            format, position);
-        gst_message_set_seqnum (message, src->priv->seqnum);
-        gst_element_post_message (GST_ELEMENT_CAST (src), message);
-        event = gst_event_new_segment_done (format, position);
+        if (flag_segment) {
+          message = gst_message_new_segment_done (GST_OBJECT_CAST (src),
+              format, position);
+          gst_message_set_seqnum (message, src->priv->seqnum);
+          gst_element_post_message (GST_ELEMENT_CAST (src), message);
+          event = gst_event_new_segment_done (format, position);
+        } else {
+          event = gst_event_new_eos ();
+          gst_event_set_seqnum (event, src->priv->seqnum);
+        }
+
         gst_event_set_seqnum (event, src->priv->seqnum);
-        gst_pad_push_event (pad, event);
       } else {
         event = gst_event_new_eos ();
         gst_event_set_seqnum (event, src->priv->seqnum);
-        gst_pad_push_event (pad, event);
       }
+
+      gst_pad_push_event (pad, event);
+      src->priv->forced_eos = FALSE;
+
     } else if (ret == GST_FLOW_NOT_LINKED || ret <= GST_FLOW_EOS) {
       event = gst_event_new_eos ();
       gst_event_set_seqnum (event, src->priv->seqnum);
@@ -3197,6 +3236,7 @@ gst_base_src_start (GstBaseSrc * basesrc)
   basesrc->running = FALSE;
   basesrc->priv->segment_pending = FALSE;
   basesrc->priv->segment_seqnum = gst_util_seqnum_next ();
+  basesrc->priv->forced_eos = FALSE;
   GST_LIVE_UNLOCK (basesrc);
 
   bclass = GST_BASE_SRC_GET_CLASS (basesrc);
@@ -3311,24 +3351,30 @@ gst_base_src_start_complete (GstBaseSrc * basesrc, GstFlowReturn ret)
   /* take the stream lock here, we only want to let the task run when we have
    * set the STARTED flag */
   GST_PAD_STREAM_LOCK (basesrc->srcpad);
-  if (mode == GST_PAD_MODE_PUSH) {
-    /* do initial seek, which will start the task */
-    GST_OBJECT_LOCK (basesrc);
-    event = basesrc->pending_seek;
-    basesrc->pending_seek = NULL;
-    GST_OBJECT_UNLOCK (basesrc);
+  switch (mode) {
+    case GST_PAD_MODE_PUSH:
+      /* do initial seek, which will start the task */
+      GST_OBJECT_LOCK (basesrc);
+      event = basesrc->pending_seek;
+      basesrc->pending_seek = NULL;
+      GST_OBJECT_UNLOCK (basesrc);
 
-    /* The perform seek code will start the task when finished. We don't have to
-     * unlock the streaming thread because it is not running yet */
-    if (G_UNLIKELY (!gst_base_src_perform_seek (basesrc, event, FALSE)))
-      goto seek_failed;
+      /* The perform seek code will start the task when finished. We don't have to
+       * unlock the streaming thread because it is not running yet */
+      if (G_UNLIKELY (!gst_base_src_perform_seek (basesrc, event, FALSE)))
+        goto seek_failed;
 
-    if (event)
-      gst_event_unref (event);
-  } else {
-    /* if not random_access, we cannot operate in pull mode for now */
-    if (G_UNLIKELY (!basesrc->random_access))
-      goto no_get_range;
+      if (event)
+        gst_event_unref (event);
+      break;
+    case GST_PAD_MODE_PULL:
+      /* if not random_access, we cannot operate in pull mode for now */
+      if (G_UNLIKELY (!basesrc->random_access))
+        goto no_get_range;
+      break;
+    default:
+      goto not_activated_yet;
+      break;
   }
 
   GST_OBJECT_LOCK (basesrc);
@@ -3357,6 +3403,14 @@ no_get_range:
     GST_PAD_STREAM_UNLOCK (basesrc->srcpad);
     gst_base_src_stop (basesrc);
     GST_ERROR_OBJECT (basesrc, "Cannot operate in pull mode, stopping");
+    ret = GST_FLOW_ERROR;
+    goto error;
+  }
+not_activated_yet:
+  {
+    GST_PAD_STREAM_UNLOCK (basesrc->srcpad);
+    gst_base_src_stop (basesrc);
+    GST_WARNING_OBJECT (basesrc, "pad not activated yet");
     ret = GST_FLOW_ERROR;
     goto error;
   }
@@ -3467,7 +3521,12 @@ gst_base_src_set_flushing (GstBaseSrc * basesrc,
     basesrc->live_running = TRUE;
 
     /* clear pending EOS if any */
-    g_atomic_int_set (&basesrc->priv->pending_eos, FALSE);
+    if (g_atomic_int_get (&basesrc->priv->has_pending_eos)) {
+      GST_OBJECT_LOCK (basesrc);
+      CLEAR_PENDING_EOS (basesrc);
+      basesrc->priv->forced_eos = FALSE;
+      GST_OBJECT_UNLOCK (basesrc);
+    }
 
     /* step 1, now that we have the LIVE lock, clear our unlock request */
     if (bclass->unlock_stop)
@@ -3638,6 +3697,8 @@ gst_base_src_activate_mode (GstPad * pad, GstObject * parent,
 
   src->priv->stream_start_pending = FALSE;
 
+  GST_DEBUG_OBJECT (pad, "activating in mode %d", mode);
+
   switch (mode) {
     case GST_PAD_MODE_PULL:
       res = gst_base_src_activate_pull (pad, parent, active);
@@ -3699,7 +3760,11 @@ gst_base_src_change_state (GstElement * element, GstStateChange transition)
     {
       /* we don't need to unblock anything here, the pad deactivation code
        * already did this */
-      g_atomic_int_set (&basesrc->priv->pending_eos, FALSE);
+      if (g_atomic_int_get (&basesrc->priv->has_pending_eos)) {
+        GST_OBJECT_LOCK (basesrc);
+        CLEAR_PENDING_EOS (basesrc);
+        GST_OBJECT_UNLOCK (basesrc);
+      }
       gst_event_replace (&basesrc->pending_seek, NULL);
       break;
     }

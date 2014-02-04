@@ -1061,6 +1061,16 @@ gst_tag_list_copy (const GstTagList * taglist)
  */
 #define GST_TAG_INTERPRETED_BY                    "interpreted-by"
 /**
+ * GST_TAG_MIDI_BASE_NOTE:
+ *
+ * <ulink url="http://en.wikipedia.org/wiki/Note#Note_designation_in_accordance_with_octave_name">Midi note number</ulink>
+ * of the audio track. This is useful for sample instruments and in particular
+ * for multi-samples.
+ *
+ * Since: 1.4
+ */
+#define GST_TAG_MIDI_BASE_NOTE                    "midi-base-note"
+/**
  * GST_TAG_TRACK_CONTAINER_ID:
  *
  * The track ID from the container. For example, the PID in MPEG-TS, or the
@@ -1069,7 +1079,6 @@ gst_tag_list_copy (const GstTagList * taglist)
  * Since: 1.4
  */
 #define GST_TAG_TRACK_CONTAINER_ID "track-container-id"
-
 G_END_DECLS
 
 #endif /* __GST_TAGLIST_H__ */

@@ -51,6 +51,7 @@
 #include "gst/glib-compat-private.h"
 
 #include <string.h>
+#include <stdio.h>
 
 static GstStaticPadTemplate sinktemplate = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
@@ -77,10 +78,6 @@ gst_tee_pull_mode_get_type (void)
   }
   return type;
 }
-
-/* lock to protect request pads from being removed while downstream */
-#define GST_TEE_DYN_LOCK(tee) g_mutex_lock (&(tee)->dyn_lock)
-#define GST_TEE_DYN_UNLOCK(tee) g_mutex_unlock (&(tee)->dyn_lock)
 
 #define DEFAULT_PROP_NUM_SRC_PADS	0
 #define DEFAULT_PROP_HAS_CHAIN		TRUE
@@ -135,6 +132,7 @@ struct _GstTeePad
 {
   GstPad parent;
 
+  guint index;
   gboolean pushed;
   GstFlowReturn result;
   gboolean removed;
@@ -218,9 +216,9 @@ gst_tee_finalize (GObject * object)
 
   tee = GST_TEE (object);
 
-  g_free (tee->last_message);
+  g_hash_table_unref (tee->pad_indexes);
 
-  g_mutex_clear (&tee->dyn_lock);
+  g_free (tee->last_message);
 
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
@@ -285,8 +283,6 @@ gst_tee_class_init (GstTeeClass * klass)
 static void
 gst_tee_init (GstTee * tee)
 {
-  g_mutex_init (&tee->dyn_lock);
-
   tee->sinkpad = gst_pad_new_from_static_template (&sinktemplate, "sink");
   tee->sink_mode = GST_PAD_MODE_NONE;
 
@@ -301,6 +297,8 @@ gst_tee_init (GstTee * tee)
       GST_DEBUG_FUNCPTR (gst_tee_chain_list));
   GST_OBJECT_FLAG_SET (tee->sinkpad, GST_PAD_FLAG_PROXY_CAPS);
   gst_element_add_pad (GST_ELEMENT (tee), tee->sinkpad);
+
+  tee->pad_indexes = g_hash_table_new (NULL, NULL);
 
   tee->last_message = NULL;
 }
@@ -323,24 +321,48 @@ forward_sticky_events (GstPad * pad, GstEvent ** event, gpointer user_data)
 
 static GstPad *
 gst_tee_request_new_pad (GstElement * element, GstPadTemplate * templ,
-    const gchar * unused, const GstCaps * caps)
+    const gchar * name_templ, const GstCaps * caps)
 {
   gchar *name;
   GstPad *srcpad;
   GstTee *tee;
   GstPadMode mode;
   gboolean res;
+  guint index = 0;
 
   tee = GST_TEE (element);
 
   GST_DEBUG_OBJECT (tee, "requesting pad");
 
   GST_OBJECT_LOCK (tee);
-  name = g_strdup_printf ("src_%u", tee->pad_counter++);
+
+  if (name_templ) {
+    sscanf (name_templ, "src_%u", &index);
+    GST_LOG_OBJECT (element, "name: %s (index %d)", name_templ, index);
+    if (g_hash_table_contains (tee->pad_indexes, GUINT_TO_POINTER (index))) {
+      GST_ERROR_OBJECT (element, "pad name %s is not unique", name_templ);
+      GST_OBJECT_UNLOCK (tee);
+      return NULL;
+    }
+    if (index >= tee->next_pad_index)
+      tee->next_pad_index = index + 1;
+  } else {
+    index = tee->next_pad_index;
+
+    while (g_hash_table_contains (tee->pad_indexes, GUINT_TO_POINTER (index)))
+      index++;
+
+    tee->next_pad_index = index + 1;
+  }
+
+  g_hash_table_insert (tee->pad_indexes, GUINT_TO_POINTER (index), NULL);
+
+  name = g_strdup_printf ("src_%u", index);
 
   srcpad = GST_PAD_CAST (g_object_new (GST_TYPE_TEE_PAD,
           "name", name, "direction", templ->direction, "template", templ,
           NULL));
+  GST_TEE_PAD_CAST (srcpad)->index = index;
   g_free (name);
 
   mode = tee->sink_mode;
@@ -399,14 +421,14 @@ gst_tee_release_pad (GstElement * element, GstPad * pad)
 {
   GstTee *tee;
   gboolean changed = FALSE;
+  guint index;
 
   tee = GST_TEE (element);
 
   GST_DEBUG_OBJECT (tee, "releasing pad");
 
-  /* wait for pending pad_alloc to finish */
-  GST_TEE_DYN_LOCK (tee);
   GST_OBJECT_LOCK (tee);
+  index = GST_TEE_PAD_CAST (pad)->index;
   /* mark the pad as removed so that future pad_alloc fails with NOT_LINKED. */
   GST_TEE_PAD_CAST (pad)->removed = TRUE;
   if (tee->allocpad == pad) {
@@ -419,13 +441,16 @@ gst_tee_release_pad (GstElement * element, GstPad * pad)
   gst_element_remove_pad (GST_ELEMENT_CAST (tee), pad);
 
   gst_pad_set_active (pad, FALSE);
-  GST_TEE_DYN_UNLOCK (tee);
 
   gst_object_unref (pad);
 
   if (changed) {
     gst_tee_notify_alloc_pad (tee);
   }
+
+  GST_OBJECT_LOCK (tee);
+  g_hash_table_remove (tee->pad_indexes, GUINT_TO_POINTER (index));
+  GST_OBJECT_UNLOCK (tee);
 }
 
 static void
@@ -591,6 +616,9 @@ gst_tee_handle_data (GstTee * tee, gpointer data, gboolean is_list)
   if (!pads->next) {
     GstPad *pad = GST_PAD_CAST (pads->data);
 
+    /* Keep another ref around, a pad probe
+     * might release and destroy the pad */
+    gst_object_ref (pad);
     GST_OBJECT_UNLOCK (tee);
 
     if (pad == tee->pull_pad) {
@@ -600,6 +628,9 @@ gst_tee_handle_data (GstTee * tee, gpointer data, gboolean is_list)
     } else {
       ret = gst_pad_push (pad, GST_BUFFER_CAST (data));
     }
+
+    gst_object_unref (pad);
+
     return ret;
   }
 

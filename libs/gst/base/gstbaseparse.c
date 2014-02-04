@@ -330,8 +330,10 @@ struct _GstBaseParsePrivate
 
   /* Pending serialized events */
   GList *pending_events;
-  /* Newsegment event to be sent after SEEK */
-  gboolean pending_segment;
+
+  /* If baseparse has checked the caps to identify if it is
+   * handling video or audio */
+  gboolean checked_media;
 
   /* offset of last parsed frame/data */
   gint64 prev_offset;
@@ -471,10 +473,13 @@ static GstFlowReturn gst_base_parse_locate_time (GstBaseParse * parse,
 static GstFlowReturn gst_base_parse_start_fragment (GstBaseParse * parse);
 static GstFlowReturn gst_base_parse_finish_fragment (GstBaseParse * parse,
     gboolean prev_head);
+static GstFlowReturn gst_base_parse_send_buffers (GstBaseParse * parse);
 
 static inline GstFlowReturn gst_base_parse_check_sync (GstBaseParse * parse);
 
 static gboolean gst_base_parse_is_seekable (GstBaseParse * parse);
+
+static void gst_base_parse_push_pending_events (GstBaseParse * parse);
 
 static void
 gst_base_parse_clear_queues (GstBaseParse * parse)
@@ -507,7 +512,8 @@ gst_base_parse_clear_queues (GstBaseParse * parse)
   g_list_foreach (parse->priv->pending_events, (GFunc) gst_event_unref, NULL);
   g_list_free (parse->priv->pending_events);
   parse->priv->pending_events = NULL;
-  parse->priv->pending_segment = FALSE;
+
+  parse->priv->checked_media = FALSE;
 }
 
 static void
@@ -526,7 +532,6 @@ gst_base_parse_finalize (GObject * object)
       NULL);
   g_list_free (parse->priv->pending_events);
   parse->priv->pending_events = NULL;
-  parse->priv->pending_segment = FALSE;
 
   if (parse->priv->index) {
     gst_object_unref (parse->priv->index);
@@ -826,6 +831,7 @@ gst_base_parse_reset (GstBaseParse * parse)
   parse->priv->idx_byte_interval = 0;
   parse->priv->exact_position = TRUE;
   parse->priv->seen_keyframe = FALSE;
+  parse->priv->checked_media = FALSE;
 
   parse->priv->last_dts = GST_CLOCK_TIME_NONE;
   parse->priv->last_pts = GST_CLOCK_TIME_NONE;
@@ -835,7 +841,6 @@ gst_base_parse_reset (GstBaseParse * parse)
       NULL);
   g_list_free (parse->priv->pending_events);
   parse->priv->pending_events = NULL;
-  parse->priv->pending_segment = FALSE;
 
   if (parse->priv->cache) {
     gst_buffer_unref (parse->priv->cache);
@@ -1083,6 +1088,7 @@ gst_base_parse_sink_event_default (GstBaseParse * parse, GstEvent * event)
          * whatever else it might claim */
         parse->priv->upstream_seekable = FALSE;
         next_dts = in_segment->start;
+        gst_event_copy_segment (event, &out_segment);
       }
 
       memcpy (&parse->segment, &out_segment, sizeof (GstSegment));
@@ -1092,13 +1098,11 @@ gst_base_parse_sink_event_default (GstBaseParse * parse, GstEvent * event)
          applied_rate, format, start, stop, start);
        */
 
-      /* save the segment for later, right before we push a new buffer so that
-       * the caps are fixed and the next linked element can receive
-       * the segment. */
-      parse->priv->pending_segment = TRUE;
       ret = TRUE;
 
-      /* but finish the current segment */
+      /* save the segment for later, right before we push a new buffer so that
+       * the caps are fixed and the next linked element can receive
+       * the segment but finish the current segment */
       GST_DEBUG_OBJECT (parse, "draining current segment");
       if (in_segment->rate > 0.0)
         gst_base_parse_drain (parse);
@@ -1149,16 +1153,8 @@ gst_base_parse_sink_event_default (GstBaseParse * parse, GstEvent * event)
             ("No valid frames found before end of stream"), (NULL));
       }
       /* newsegment and other serialized events before eos */
-      if (G_UNLIKELY (parse->priv->pending_events)) {
-        GList *l;
+      gst_base_parse_push_pending_events (parse);
 
-        for (l = parse->priv->pending_events; l != NULL; l = l->next) {
-          gst_pad_push_event (parse->srcpad, GST_EVENT (l->data));
-        }
-        g_list_free (parse->priv->pending_events);
-        parse->priv->pending_events = NULL;
-        parse->priv->pending_segment = FALSE;
-      }
       if (parse->priv->framecount < MIN_FRAMES_TO_POST_BITRATE) {
         /* We've not posted bitrate tags yet - do so now */
         gst_base_parse_post_bitrates (parse, TRUE, TRUE, TRUE);
@@ -1192,6 +1188,9 @@ gst_base_parse_sink_event_default (GstBaseParse * parse, GstEvent * event)
     case GST_EVENT_GAP:
     {
       GST_DEBUG_OBJECT (parse, "draining current data due to gap event");
+
+      gst_base_parse_push_pending_events (parse);
+
       if (parse->segment.rate > 0.0)
         gst_base_parse_drain (parse);
       else
@@ -1859,6 +1858,7 @@ gst_base_parse_check_media (GstBaseParse * parse)
   if (caps)
     gst_caps_unref (caps);
 
+  parse->priv->checked_media = TRUE;
   GST_DEBUG_OBJECT (parse, "media is video: %d", parse->priv->is_video);
 }
 
@@ -2006,6 +2006,26 @@ gst_base_parse_handle_buffer (GstBaseParse * parse, GstBuffer * buffer,
   gst_base_parse_frame_free (frame);
 
   return ret;
+}
+
+/* gst_base_parse_push_pending_events:
+ * @parse: #GstBaseParse
+ *
+ * Pushes the pending events
+ */
+static void
+gst_base_parse_push_pending_events (GstBaseParse * parse)
+{
+  if (G_UNLIKELY (parse->priv->pending_events)) {
+    GList *r = g_list_reverse (parse->priv->pending_events);
+    GList *l;
+
+    parse->priv->pending_events = NULL;
+    for (l = r; l != NULL; l = l->next) {
+      gst_pad_push_event (parse->srcpad, GST_EVENT_CAST (l->data));
+    }
+    g_list_free (r);
+  }
 }
 
 /* gst_base_parse_handle_and_push_frame:
@@ -2174,23 +2194,13 @@ gst_base_parse_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
   if (!gst_pad_has_current_caps (parse->srcpad))
     goto no_caps;
 
-  if (G_UNLIKELY (parse->priv->pending_segment)) {
+  if (G_UNLIKELY (!parse->priv->checked_media)) {
     /* have caps; check identity */
     gst_base_parse_check_media (parse);
   }
 
   /* Push pending events, including SEGMENT events */
-  if (G_UNLIKELY (parse->priv->pending_events)) {
-    GList *r = g_list_reverse (parse->priv->pending_events);
-    GList *l;
-
-    parse->priv->pending_events = NULL;
-    for (l = r; l != NULL; l = l->next) {
-      gst_pad_push_event (parse->srcpad, GST_EVENT (l->data));
-    }
-    g_list_free (r);
-    parse->priv->pending_segment = FALSE;
-  }
+  gst_base_parse_push_pending_events (parse);
 
   /* segment adjustment magic; only if we are running the whole show */
   if (!parse->priv->passthrough && parse->segment.rate > 0.0 &&
@@ -2288,6 +2298,34 @@ gst_base_parse_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
           size);
       ret = gst_pad_push (parse->srcpad, buffer);
       GST_LOG_OBJECT (parse, "frame pushed, flow %s", gst_flow_get_name (ret));
+    } else if (!parse->priv->disable_passthrough && parse->priv->passthrough) {
+
+      /* in backwards playback mode, if on passthrough we need to push buffers
+       * directly without accumulating them into the buffers_queued as baseparse
+       * will never check for a DISCONT while on passthrough and those buffers
+       * will never be pushed.
+       *
+       * also, as we are on reverse playback, it might be possible that
+       * passthrough might have just been enabled, so make sure to drain the
+       * buffers_queued list */
+      if (G_UNLIKELY (parse->priv->buffers_queued != NULL)) {
+        gst_base_parse_finish_fragment (parse, TRUE);
+        ret = gst_base_parse_send_buffers (parse);
+      }
+
+      if (ret == GST_FLOW_OK) {
+        GST_LOG_OBJECT (parse,
+            "pushing frame (%" G_GSIZE_FORMAT " bytes) now..", size);
+        ret = gst_pad_push (parse->srcpad, buffer);
+        GST_LOG_OBJECT (parse, "frame pushed, flow %s",
+            gst_flow_get_name (ret));
+      } else {
+        GST_LOG_OBJECT (parse,
+            "frame (%" G_GSIZE_FORMAT " bytes) not pushed: %s", size,
+            gst_flow_get_name (ret));
+        gst_buffer_unref (buffer);
+      }
+
     } else {
       GST_LOG_OBJECT (parse, "frame (%" G_GSIZE_FORMAT " bytes) queued for now",
           size);
@@ -3206,17 +3244,7 @@ pause:
     }
     if (push_eos) {
       /* Push pending events, including SEGMENT events */
-      if (G_UNLIKELY (parse->priv->pending_events)) {
-        GList *r = g_list_reverse (parse->priv->pending_events);
-        GList *l;
-
-        parse->priv->pending_events = NULL;
-        for (l = r; l != NULL; l = l->next) {
-          gst_pad_push_event (parse->srcpad, GST_EVENT (l->data));
-        }
-        g_list_free (r);
-        parse->priv->pending_segment = FALSE;
-      }
+      gst_base_parse_push_pending_events (parse);
 
       gst_pad_push_event (parse->srcpad, gst_event_new_eos ());
     }
@@ -3321,7 +3349,6 @@ gst_base_parse_sink_activate_mode (GstPad * pad, GstObject * parent,
         parse->priv->pending_events =
             g_list_prepend (parse->priv->pending_events,
             gst_event_new_segment (&parse->segment));
-        parse->priv->pending_segment = TRUE;
         result = TRUE;
       } else {
         result = gst_pad_stop_task (pad);
@@ -4213,7 +4240,6 @@ gst_base_parse_handle_seek (GstBaseParse * parse, GstEvent * event)
 
     /* store the newsegment event so it can be sent from the streaming thread. */
     /* This will be sent later in _loop() */
-    parse->priv->pending_segment = TRUE;
     segment_event = gst_event_new_segment (&parse->segment);
     gst_event_set_seqnum (segment_event, seqnum);
     parse->priv->pending_events =
