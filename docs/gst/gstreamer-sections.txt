@@ -218,6 +218,9 @@ gst_buffer_get_all_memory
 gst_buffer_remove_memory
 gst_buffer_remove_all_memory
 
+gst_buffer_is_all_memory_writable
+gst_buffer_is_memory_range_writable
+
 gst_buffer_map
 gst_buffer_map_range
 gst_buffer_unmap
@@ -1732,6 +1735,7 @@ GstPad
 GstPadDirection
 GstPadFlags
 GstPadLinkReturn
+gst_pad_link_get_name
 GST_PAD_LINK_FAILED
 GST_PAD_LINK_SUCCESSFUL
 GstPadLinkCheck
@@ -2482,6 +2486,7 @@ gst_segment_to_stream_time
 gst_segment_to_position
 gst_segment_set_running_time
 gst_segment_copy_into
+gst_segment_offset_running_time
 <SUBSECTION Standard>
 GST_TYPE_SEGMENT
 GST_TYPE_SEGMENT_FLAGS
@@ -2541,6 +2546,8 @@ gst_structure_id_has_field_typed
 gst_structure_get_boolean
 gst_structure_get_int
 gst_structure_get_uint
+gst_structure_get_int64
+gst_structure_get_uint64
 gst_structure_get_double
 gst_structure_get_string
 gst_structure_get_date
@@ -3073,10 +3080,6 @@ GFLOAT_FROM_LE
 GFLOAT_SWAP_LE_BE
 GFLOAT_TO_BE
 GFLOAT_TO_LE
-GUINT16_SWAP_LE_BE
-GUINT32_SWAP_LE_BE
-GUINT64_SWAP_LE_BE
-
 
 gst_guint64_to_gdouble
 gst_gdouble_to_guint64

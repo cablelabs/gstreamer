@@ -33,9 +33,7 @@
  * created one will typically allocate memory for it and add it to the buffer.
  * The following example creates a buffer that can hold a given video frame
  * with a given width, height and bits per plane.
- * <example>
- * <title>Creating a buffer for a video frame</title>
- *   <programlisting>
+ * |[
  *   GstBuffer *buffer;
  *   GstMemory *memory;
  *   gint size, width, height, bpp;
@@ -45,11 +43,10 @@
  *   memory = gst_allocator_alloc (NULL, size, NULL);
  *   gst_buffer_insert_memory (buffer, -1, memory);
  *   ...
- *   </programlisting>
- * </example>
+ * ]|
  *
- * Alternatively, use gst_buffer_new_allocate()
- * to create a buffer with preallocated data of a given size.
+ * Alternatively, use gst_buffer_new_allocate() to create a buffer with
+ * preallocated data of a given size.
  *
  * Buffers can contain a list of #GstMemory objects. You can retrieve how many
  * memory objects with gst_buffer_n_memory() and you can get a pointer
@@ -286,6 +283,7 @@ _replace_memory (GstBuffer * buffer, guint len, guint idx, guint length,
         &GST_BUFFER_MEM_PTR (buffer, end), (len - end) * sizeof (gpointer));
   }
   GST_BUFFER_MEM_LEN (buffer) = len - length;
+  GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_TAG_MEMORY);
 }
 
 static inline void
@@ -320,6 +318,8 @@ _memory_add (GstBuffer * buffer, gint idx, GstMemory * mem, gboolean lock)
     gst_memory_lock (mem, GST_LOCK_FLAG_EXCLUSIVE);
   GST_BUFFER_MEM_PTR (buffer, idx) = mem;
   GST_BUFFER_MEM_LEN (buffer) = len + 1;
+
+  GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_TAG_MEMORY);
 }
 
 GST_DEFINE_MINI_OBJECT_TYPE (GstBuffer, gst_buffer);
@@ -518,6 +518,8 @@ _gst_buffer_copy (GstBuffer * buffer)
   /* we simply copy everything from our parent */
   if (!gst_buffer_copy_into (copy, buffer, GST_BUFFER_COPY_ALL, 0, -1))
     gst_buffer_replace (&copy, NULL);
+
+  GST_BUFFER_FLAG_UNSET (copy, GST_BUFFER_FLAG_TAG_MEMORY);
 
   return copy;
 }
@@ -723,6 +725,7 @@ gst_buffer_new_allocate (GstAllocator * allocator, gsize size,
   if (size > 0)
     _memory_add (newbuf, -1, gst_memory_ref (mem), TRUE);
 #endif
+  GST_BUFFER_FLAG_UNSET (newbuf, GST_BUFFER_FLAG_TAG_MEMORY);
 
   return newbuf;
 
@@ -769,6 +772,7 @@ gst_buffer_new_wrapped_full (GstMemoryFlags flags, gpointer data,
       gst_memory_new_wrapped (flags, data, maxsize, offset, size, user_data,
       notify);
   _memory_add (newbuf, -1, mem, TRUE);
+  GST_BUFFER_FLAG_UNSET (newbuf, GST_BUFFER_FLAG_TAG_MEMORY);
 
   return newbuf;
 }
@@ -883,6 +887,7 @@ _get_mapped (GstBuffer * buffer, guint idx, GstMapInfo * info,
     GST_BUFFER_MEM_PTR (buffer, idx) = mapped;
     /* unlock old memory */
     gst_memory_unlock (mem, GST_LOCK_FLAG_EXCLUSIVE);
+    GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_TAG_MEMORY);
   }
   gst_memory_unref (mem);
 
@@ -897,10 +902,6 @@ _get_mapped (GstBuffer * buffer, guint idx, GstMapInfo * info,
  * Get the memory block at @idx in @buffer. The memory block stays valid until
  * the memory block in @buffer is removed, replaced or merged, typically with
  * any call that modifies the memory in @buffer.
- *
- * Since this call does not influence the refcount of the memory,
- * gst_memory_is_writable() can be used to check if @buffer is the sole owner
- * of the returned memory.
  *
  * Returns: (transfer none): the #GstMemory at @idx.
  */
@@ -1171,6 +1172,66 @@ gst_buffer_find_memory (GstBuffer * buffer, gsize offset, gsize size,
 }
 
 /**
+ * gst_buffer_is_memory_range_writable:
+ * @buffer: a #GstBuffer.
+ * @idx: an index
+ * @length: a length should not be 0
+ *
+ * Check if @length memory blocks in @buffer starting from @idx are writable.
+ *
+ * @length can be -1 to check all the memory blocks after @idx.
+ *
+ * Note that this function does not check if @buffer is writable, use
+ * gst_buffer_is_writable() to check that if needed.
+ *
+ * Returns: %TRUE if the memory range is writable
+ *
+ * Since: 1.4
+ */
+gboolean
+gst_buffer_is_memory_range_writable (GstBuffer * buffer, guint idx, gint length)
+{
+  guint i, len;
+
+  g_return_val_if_fail (GST_IS_BUFFER (buffer), FALSE);
+
+  GST_CAT_DEBUG (GST_CAT_BUFFER, "idx %u, length %d", idx, length);
+
+  len = GST_BUFFER_MEM_LEN (buffer);
+  g_return_val_if_fail ((len == 0 && idx == 0 && length == -1) ||
+      (length == -1 && idx < len) || (length > 0 && length + idx <= len),
+      FALSE);
+
+  if (length == -1)
+    length = len - idx;
+
+  for (i = 0; i < len; i++) {
+    if (!gst_memory_is_writable (GST_BUFFER_MEM_PTR (buffer, i)))
+      return FALSE;
+  }
+  return TRUE;
+}
+
+/**
+ * gst_buffer_is_all_memory_writable:
+ * @buffer: a #GstBuffer.
+ *
+ * Check if all memory blocks in @buffer are writable.
+ *
+ * Note that this function does not check if @buffer is writable, use
+ * gst_buffer_is_writable() to check that if needed.
+ *
+ * Returns: %TRUE if all memory blocks in @buffer are writable
+ *
+ * Since: 1.4
+ */
+gboolean
+gst_buffer_is_all_memory_writable (GstBuffer * buffer)
+{
+  return gst_buffer_is_memory_range_writable (buffer, 0, -1);
+}
+
+/**
  * gst_buffer_get_sizes:
  * @buffer: a #GstBuffer.
  * @offset: (out): a pointer to the offset
@@ -1397,7 +1458,9 @@ gst_buffer_resize_range (GstBuffer * buffer, guint idx, gint length,
         GST_BUFFER_MEM_PTR (buffer, i) = newmem;
         gst_memory_unlock (mem, GST_LOCK_FLAG_EXCLUSIVE);
         gst_memory_unref (mem);
+
       }
+      GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_TAG_MEMORY);
     }
 
     offset = noffs;
@@ -1857,6 +1920,7 @@ gst_buffer_append_region (GstBuffer * buf1, GstBuffer * buf2, gssize offset,
   }
 
   GST_BUFFER_MEM_LEN (buf2) = 0;
+  GST_BUFFER_FLAG_SET (buf2, GST_BUFFER_FLAG_TAG_MEMORY);
   gst_buffer_unref (buf2);
 
   return buf1;

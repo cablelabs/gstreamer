@@ -195,9 +195,7 @@ gst_proxy_pad_get_target (GstPad * pad)
   GstPad *target;
 
   GST_OBJECT_LOCK (pad);
-  target = GST_PROXY_PAD_TARGET (pad);
-  if (target)
-    gst_object_ref (target);
+  target = gst_pad_get_peer (GST_PROXY_PAD_INTERNAL (pad));
   GST_OBJECT_UNLOCK (pad);
 
   return target;
@@ -836,7 +834,7 @@ gst_ghost_pad_set_target (GstGhostPad * gpad, GstPad * newtarget)
     GST_DEBUG_OBJECT (gpad, "clearing target");
 
   /* clear old target */
-  if ((oldtarget = GST_PROXY_PAD_TARGET (gpad))) {
+  if ((oldtarget = gst_pad_get_peer (internal))) {
     GST_OBJECT_UNLOCK (gpad);
 
     /* unlink internal pad */
@@ -844,6 +842,8 @@ gst_ghost_pad_set_target (GstGhostPad * gpad, GstPad * newtarget)
       gst_pad_unlink (internal, oldtarget);
     else
       gst_pad_unlink (oldtarget, internal);
+
+    gst_object_unref (oldtarget);
   } else {
     GST_OBJECT_UNLOCK (gpad);
   }
@@ -869,8 +869,8 @@ gst_ghost_pad_set_target (GstGhostPad * gpad, GstPad * newtarget)
   /* ERRORS */
 link_failed:
   {
-    GST_WARNING_OBJECT (gpad, "could not link internal and target, reason:%d",
-        lret);
+    GST_WARNING_OBJECT (gpad, "could not link internal and target, reason:%s",
+        gst_pad_link_get_name (lret));
     return FALSE;
   }
 }

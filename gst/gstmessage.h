@@ -99,6 +99,15 @@ typedef struct _GstMessage GstMessage;
  *     the URI for the next title has been set).
  * @GST_MESSAGE_NEED_CONTEXT: Message indicating that an element wants a specific context (Since 1.2)
  * @GST_MESSAGE_HAVE_CONTEXT: Message indicating that an element created a context (Since 1.2)
+ * @GST_MESSAGE_EXTENDED: Message is an extended message type (see below).
+ *     These extended message IDs can't be used directly with mask-based API
+ *     like gst_bus_poll() or gst_bus_timed_pop_filtered(), but you can still
+ *     filter for GST_MESSAGE_EXTENDED and then check the result for the
+ *     specific type. (Since 1.4)
+ * @GST_MESSAGE_DEVICE_ADDED: Message indicating a #GstDevice was added to
+ *     a #GstDeviceMonitor (Since 1.4)
+ * @GST_MESSAGE_DEVICE_REMOVED: Message indicating a #GstDevice was removed
+ *     from a #GstDeviceMonitor (Since 1.4)
  * @GST_MESSAGE_ANY: mask for all of the above messages.
  *
  * The different message types that are available.
@@ -106,6 +115,7 @@ typedef struct _GstMessage GstMessage;
 /* NOTE: keep in sync with quark registration in gstmessage.c
  * NOTE: keep GST_MESSAGE_ANY a valid gint to avoid compiler warnings.
  */
+/* FIXME: 2.0: Make it NOT flags, just a regular 1,2,3,4.. enumeration */
 typedef enum
 {
   GST_MESSAGE_UNKNOWN           = 0,
@@ -140,6 +150,9 @@ typedef enum
   GST_MESSAGE_STREAM_START      = (1 << 28),
   GST_MESSAGE_NEED_CONTEXT      = (1 << 29),
   GST_MESSAGE_HAVE_CONTEXT      = (1 << 30),
+  GST_MESSAGE_EXTENDED          = (1 << 31),
+  GST_MESSAGE_DEVICE_ADDED      = GST_MESSAGE_EXTENDED + 1,
+  GST_MESSAGE_DEVICE_REMOVED    = GST_MESSAGE_EXTENDED + 2,
   GST_MESSAGE_ANY               = ~0
 } GstMessageType;
 
@@ -150,6 +163,7 @@ typedef enum
 #include <gst/gststructure.h>
 #include <gst/gstquery.h>
 #include <gst/gsttoc.h>
+#include <gst/gstdevice.h>
 
 #define GST_TYPE_MESSAGE                         (gst_message_get_type())
 #define GST_IS_MESSAGE(obj)                      (GST_IS_MINI_OBJECT_TYPE (obj, GST_TYPE_MESSAGE))
@@ -173,6 +187,15 @@ typedef enum
  * Get the #GstMessageType of @message.
  */
 #define GST_MESSAGE_TYPE(message)       (GST_MESSAGE_CAST(message)->type)
+/**
+ * GST_MESSAGE_TYPE_IS_EXTENDED:
+ * @message: a #GstMessage
+ *
+ * Check if the message is in the extended message group
+ * (Since 1.4)
+ */
+#define GST_MESSAGE_TYPE_IS_EXTENDED(message)       (!!(GST_MESSAGE_CAST(message)->type & GST_MESSAGE_EXTENDED))
+
 /**
  * GST_MESSAGE_TYPE_NAME:
  * @message: a #GstMessage
@@ -571,6 +594,15 @@ gboolean        gst_message_parse_context_type  (GstMessage * message, const gch
 /* HAVE_CONTEXT */
 GstMessage *    gst_message_new_have_context    (GstObject * src, GstContext *context) G_GNUC_MALLOC;
 void            gst_message_parse_have_context  (GstMessage *message, GstContext **context);
+
+/* DEVICE_ADDED */
+GstMessage *    gst_message_new_device_added    (GstObject * src, GstDevice * device) G_GNUC_MALLOC;
+void            gst_message_parse_device_added  (GstMessage * message, GstDevice ** device);
+
+/* DEVICE_REMOVED */
+GstMessage *    gst_message_new_device_removed    (GstObject * src, GstDevice * device) G_GNUC_MALLOC;
+void            gst_message_parse_device_removed  (GstMessage * message, GstDevice ** device);
+
 
 G_END_DECLS
 

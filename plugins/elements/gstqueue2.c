@@ -894,7 +894,6 @@ update_buffering (GstQueue2 * queue)
      * below the low threshold */
     if (percent < queue->low_percent) {
       queue->is_buffering = TRUE;
-      queue->buffering_iteration++;
       post = TRUE;
     }
   }
@@ -1065,6 +1064,8 @@ perform_seek_to_offset (GstQueue2 * queue, guint64 offset)
   queue->seeking = TRUE;
   GST_QUEUE2_MUTEX_UNLOCK (queue);
 
+  debug_ranges (queue);
+
   GST_DEBUG_OBJECT (queue, "Seeking to %" G_GUINT64_FORMAT, offset);
 
   event =
@@ -1087,6 +1088,22 @@ perform_seek_to_offset (GstQueue2 * queue, guint64 offset)
   }
 
   return res;
+}
+
+/* get the threshold for when we decide to seek rather than wait */
+static guint64
+get_seek_threshold (GstQueue2 * queue)
+{
+  guint64 threshold;
+
+  /* FIXME, find a good threshold based on the incoming rate. */
+  threshold = 1024 * 512;
+
+  if (QUEUE_IS_USING_RING_BUFFER (queue)) {
+    threshold = MIN (threshold,
+        QUEUE_MAX_BYTES (queue) - queue->cur_level.bytes);
+  }
+  return threshold;
 }
 
 /* see if there is enough data in the file to read a full buffer */
@@ -1127,13 +1144,8 @@ gst_queue2_have_data (GstQueue2 * queue, guint64 offset, guint length)
         " len %u", offset, length);
     /* we don't have the range, see how far away we are */
     if (!queue->is_eos && queue->current) {
-      /* FIXME, find a good threshold based on the incoming rate. */
-      guint64 threshold = 1024 * 512;
+      guint64 threshold = get_seek_threshold (queue);
 
-      if (QUEUE_IS_USING_RING_BUFFER (queue)) {
-        threshold = MIN (threshold,
-            QUEUE_MAX_BYTES (queue) - queue->cur_level.bytes);
-      }
       if (offset >= queue->current->offset && offset <=
           queue->current->writing_pos + threshold) {
         GST_INFO_OBJECT (queue,
@@ -1530,10 +1542,10 @@ gst_queue2_flush_temp_file (GstQueue2 * queue)
 }
 
 static void
-gst_queue2_locked_flush (GstQueue2 * queue, gboolean full)
+gst_queue2_locked_flush (GstQueue2 * queue, gboolean full, gboolean clear_temp)
 {
   if (!QUEUE_IS_USING_QUEUE (queue)) {
-    if (QUEUE_IS_USING_TEMP_FILE (queue))
+    if (QUEUE_IS_USING_TEMP_FILE (queue) && clear_temp)
       gst_queue2_flush_temp_file (queue);
     init_ranges (queue);
   } else {
@@ -1615,6 +1627,7 @@ gst_queue2_create_write (GstQueue2 * queue, GstBuffer * buffer)
   guint size, rb_size;
   guint64 writing_pos, new_writing_pos;
   GstQueue2Range *range, *prev, *next;
+  gboolean do_seek = FALSE;
 
   if (QUEUE_IS_USING_RING_BUFFER (queue))
     writing_pos = queue->current->rb_writing_pos;
@@ -1788,15 +1801,19 @@ gst_queue2_create_write (GstQueue2 * queue, GstBuffer * buffer)
           GST_DEBUG_OBJECT (queue, "merging ranges %" G_GUINT64_FORMAT,
               next->writing_pos);
 
-          /* remove the group, we could choose to not read the data in this range
-           * again. This would involve us doing a seek to the current writing position
-           * in the range. FIXME, It would probably make sense to do a seek when there
-           * is a lot of data in the range we merged with to avoid reading it all
-           * again. */
+          /* remove the group */
           queue->current->next = next->next;
-          g_slice_free (GstQueue2Range, next);
 
-          debug_ranges (queue);
+          /* We use the threshold to decide if we want to do a seek or simply
+           * read the data again. If there is not so much data in the range we
+           * prefer to avoid to seek and read it again. */
+          if (next->writing_pos > new_writing_pos + get_seek_threshold (queue)) {
+            /* the new range had more data than the threshold, it's worth keeping
+             * it and doing a seek. */
+            new_writing_pos = next->writing_pos;
+            do_seek = TRUE;
+          }
+          g_slice_free (GstQueue2Range, next);
         }
         goto update_and_signal;
       }
@@ -1846,6 +1863,9 @@ gst_queue2_create_write (GstQueue2 * queue, GstBuffer * buffer)
     } else {
       queue->current->writing_pos = writing_pos = new_writing_pos;
     }
+    if (do_seek)
+      perform_seek_to_offset (queue, new_writing_pos);
+
     update_cur_level (queue, queue->current);
 
     /* update the buffering status */
@@ -2236,7 +2256,7 @@ gst_queue2_handle_sink_event (GstPad * pad, GstObject * parent,
         ret = gst_pad_push_event (queue->srcpad, event);
 
         GST_QUEUE2_MUTEX_LOCK (queue);
-        gst_queue2_locked_flush (queue, FALSE);
+        gst_queue2_locked_flush (queue, FALSE, TRUE);
         queue->srcresult = GST_FLOW_OK;
         queue->sinkresult = GST_FLOW_OK;
         queue->is_eos = FALSE;
@@ -2556,7 +2576,7 @@ gst_queue2_dequeue_on_eos (GstQueue2 * queue, GstQueue2ItemType * item_type)
 static GstFlowReturn
 gst_queue2_push_one (GstQueue2 * queue)
 {
-  GstFlowReturn result = GST_FLOW_OK;
+  GstFlowReturn result = queue->srcresult;
   GstMiniObject *data;
   GstQueue2ItemType item_type;
 
@@ -3097,7 +3117,7 @@ gst_queue2_sink_activate_mode (GstPad * pad, GstObject * parent,
         /* wait until it is unblocked and clean up */
         GST_PAD_STREAM_LOCK (pad);
         GST_QUEUE2_MUTEX_LOCK (queue);
-        gst_queue2_locked_flush (queue, TRUE);
+        gst_queue2_locked_flush (queue, TRUE, FALSE);
         GST_QUEUE2_MUTEX_UNLOCK (queue);
         GST_PAD_STREAM_UNLOCK (pad);
       }
@@ -3365,6 +3385,15 @@ gst_queue2_set_property (GObject * object,
       break;
     case PROP_USE_BUFFERING:
       queue->use_buffering = g_value_get_boolean (value);
+      if (!queue->use_buffering && queue->is_buffering) {
+        GstMessage *msg = gst_message_new_buffering (GST_OBJECT_CAST (queue),
+            100);
+
+        GST_DEBUG_OBJECT (queue, "Disabled buffering while buffering, "
+            "posting 100%% message");
+        queue->is_buffering = FALSE;
+        gst_element_post_message (GST_ELEMENT_CAST (queue), msg);
+      }
       break;
     case PROP_USE_RATE_ESTIMATE:
       queue->use_rate_estimate = g_value_get_boolean (value);

@@ -252,6 +252,7 @@ struct _GstBaseSrcPrivate
 
   gboolean do_timestamp;
   volatile gint dynamic_size;
+  volatile gint automatic_eos;
 
   /* stream sequence number */
   guint32 seqnum;
@@ -435,6 +436,7 @@ gst_base_src_init (GstBaseSrc * basesrc, gpointer g_class)
   g_cond_init (&basesrc->live_cond);
   basesrc->num_buffers = DEFAULT_NUM_BUFFERS;
   basesrc->num_buffers_left = -1;
+  basesrc->priv->automatic_eos = TRUE;
 
   basesrc->can_activate_push = TRUE;
 
@@ -622,6 +624,26 @@ gst_base_src_set_dynamic_size (GstBaseSrc * src, gboolean dynamic)
   g_return_if_fail (GST_IS_BASE_SRC (src));
 
   g_atomic_int_set (&src->priv->dynamic_size, dynamic);
+}
+
+/**
+ * gst_base_src_set_automatic_eos:
+ * @src: base source instance
+ * @automatic_eos: automatic eos
+ *
+ * If @automatic_eos is %TRUE, basesrc will automatically go EOS if a buffer
+ * after the total size is returned. By default this is %TRUE but sources
+ * that can't return an authoritative size and only know that they're EOS
+ * when trying to read more should set this to %FALSE.
+ *
+ * Since: 1.4
+ */
+void
+gst_base_src_set_automatic_eos (GstBaseSrc * src, gboolean automatic_eos)
+{
+  g_return_if_fail (GST_IS_BASE_SRC (src));
+
+  g_atomic_int_set (&src->priv->automatic_eos, automatic_eos);
 }
 
 /**
@@ -2304,10 +2326,14 @@ gst_base_src_update_length (GstBaseSrc * src, guint64 offset, guint * length,
   if (format != GST_FORMAT_BYTES)
     return TRUE;
 
-  /* the max amount of bytes to read is the total size or
-   * up to the segment.stop if present. */
-  if (stop != -1)
-    maxsize = MIN (size, stop);
+  /* when not doing automatic EOS, just use the stop position. We don't use
+   * the size to check for EOS */
+  if (!g_atomic_int_get (&src->priv->automatic_eos))
+    maxsize = stop;
+  /* Otherwise, the max amount of bytes to read is the total
+   * size or up to the segment.stop if present. */
+  else if (stop != -1)
+    maxsize = size != -1 ? MIN (size, stop) : stop;
   else
     maxsize = size;
 
@@ -2344,8 +2370,8 @@ gst_base_src_update_length (GstBaseSrc * src, guint64 offset, guint * length,
     }
   }
 
-  /* keep track of current duration.
-   * segment is in bytes, we checked that above. */
+  /* keep track of current duration. segment is in bytes, we checked
+   * that above. */
   GST_OBJECT_LOCK (src);
   src->segment.duration = size;
   GST_OBJECT_UNLOCK (src);
@@ -2816,7 +2842,9 @@ gst_base_src_loop (GstPad * pad)
     goto pause;
   }
 
-  if (G_UNLIKELY (eos)) {
+  /* Segment pending means that a new segment was configured
+   * during this loop run */
+  if (G_UNLIKELY (eos && !src->priv->segment_pending)) {
     GST_INFO_OBJECT (src, "pausing after end of segment");
     ret = GST_FLOW_EOS;
     goto pause;

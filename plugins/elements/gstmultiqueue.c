@@ -35,8 +35,8 @@
  *   <itemizedlist><title>Multiple streamhandling</title>
  *   <listitem><para>
  *     The element handles queueing data on more than one stream at once. To
- *     achieve such a feature it has request sink pads (sink&percnt;d) and
- *     'sometimes' src pads (src&percnt;d).
+ *     achieve such a feature it has request sink pads (sink&percnt;u) and
+ *     'sometimes' src pads (src&percnt;u).
  *   </para><para>
  *     When requesting a given sinkpad with gst_element_get_request_pad(),
  *     the associated srcpad for that stream will be created.
@@ -539,6 +539,15 @@ gst_multi_queue_set_property (GObject * object, guint prop_id,
       break;
     case PROP_USE_BUFFERING:
       mq->use_buffering = g_value_get_boolean (value);
+      if (!mq->use_buffering && mq->buffering) {
+        GstMessage *message;
+
+        mq->buffering = FALSE;
+        GST_DEBUG_OBJECT (mq, "buffering 100 percent");
+        message = gst_message_new_buffering (GST_OBJECT_CAST (mq), 100);
+
+        gst_element_post_message (GST_ELEMENT_CAST (mq), message);
+      };
       break;
     case PROP_LOW_PERCENT:
       mq->low_percent = g_value_get_int (value);
@@ -1067,7 +1076,7 @@ static GstFlowReturn
 gst_single_queue_push_one (GstMultiQueue * mq, GstSingleQueue * sq,
     GstMiniObject * object)
 {
-  GstFlowReturn result = GST_FLOW_OK;
+  GstFlowReturn result = sq->srcresult;
 
   if (GST_IS_BUFFER (object)) {
     GstBuffer *buffer;
@@ -1942,6 +1951,9 @@ single_queue_overrun_cb (GstDataQueue * dq, GstSingleQueue * sq)
       break;
     }
   }
+
+  if (!mq->queues || !mq->queues->next)
+    all_not_linked = FALSE;
 
   /* if hard limits are not reached then we allow one more buffer in the full
    * queue, but only if any of the other singelqueues are empty or all are

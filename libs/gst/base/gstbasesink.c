@@ -2857,6 +2857,44 @@ gst_base_sink_do_render_stats (GstBaseSink * basesink, gboolean start)
 }
 
 static void
+gst_base_sink_update_start_time (GstBaseSink * basesink)
+{
+  GstClock *clock;
+
+  GST_OBJECT_LOCK (basesink);
+  if ((clock = GST_ELEMENT_CLOCK (basesink))) {
+    GstClockTime now;
+
+    gst_object_ref (clock);
+    GST_OBJECT_UNLOCK (basesink);
+
+    /* calculate the time when we stopped */
+    now = gst_clock_get_time (clock);
+    gst_object_unref (clock);
+
+    GST_OBJECT_LOCK (basesink);
+    /* store the current running time */
+    if (GST_ELEMENT_START_TIME (basesink) != GST_CLOCK_TIME_NONE) {
+      if (now != GST_CLOCK_TIME_NONE)
+        GST_ELEMENT_START_TIME (basesink) =
+            now - GST_ELEMENT_CAST (basesink)->base_time;
+      else
+        GST_WARNING_OBJECT (basesink,
+            "Clock %s returned invalid time, can't calculate "
+            "running_time when going to the PAUSED state",
+            GST_OBJECT_NAME (clock));
+    }
+    GST_DEBUG_OBJECT (basesink,
+        "start_time=%" GST_TIME_FORMAT ", now=%" GST_TIME_FORMAT
+        ", base_time %" GST_TIME_FORMAT,
+        GST_TIME_ARGS (GST_ELEMENT_START_TIME (basesink)),
+        GST_TIME_ARGS (now),
+        GST_TIME_ARGS (GST_ELEMENT_CAST (basesink)->base_time));
+  }
+  GST_OBJECT_UNLOCK (basesink);
+}
+
+static void
 gst_base_sink_flush_start (GstBaseSink * basesink, GstPad * pad)
 {
   /* make sure we are not blocked on the clock also clear any pending
@@ -2872,6 +2910,7 @@ gst_base_sink_flush_start (GstBaseSink * basesink, GstPad * pad)
    * prerolled buffer */
   basesink->playing_async = TRUE;
   if (basesink->priv->async_enabled) {
+    gst_base_sink_update_start_time (basesink);
     gst_element_lost_state (GST_ELEMENT_CAST (basesink));
   } else {
     /* start time reset in above case as well;
@@ -3819,6 +3858,7 @@ gst_base_sink_perform_step (GstBaseSink * sink, GstPad * pad, GstEvent * event)
       sink->playing_async = TRUE;
       priv->pending_step.need_preroll = TRUE;
       sink->need_preroll = FALSE;
+      gst_base_sink_update_start_time (sink);
       gst_element_lost_state (GST_ELEMENT_CAST (sink));
     } else {
       sink->priv->have_latency = TRUE;
@@ -4431,9 +4471,8 @@ gst_base_sink_get_position (GstBaseSink * basesink, GstFormat format,
     start = basesink->priv->current_sstart;
     stop = basesink->priv->current_sstop;
 
-    if (in_paused || last_seen) {
-      /* in paused or when we don't use the clock, we use the last position
-       * as a lower bound */
+    if (last_seen) {
+      /* when we don't use the clock, we use the last position as a lower bound */
       if (stop == -1 || segment->rate > 0.0)
         last = start;
       else
@@ -4442,7 +4481,7 @@ gst_base_sink_get_position (GstBaseSink * basesink, GstFormat format,
       GST_DEBUG_OBJECT (basesink, "in PAUSED using last %" GST_TIME_FORMAT,
           GST_TIME_ARGS (last));
     } else {
-      /* in playing, use last stop time as upper bound */
+      /* in playing and paused, use last stop time as upper bound */
       if (start == -1 || segment->rate > 0.0)
         last = stop;
       else
@@ -4519,15 +4558,9 @@ gst_base_sink_get_position (GstBaseSink * basesink, GstFormat format,
 
     *cur = time + gst_guint64_to_gdouble (now - base_time) * rate;
 
-    if (in_paused) {
-      /* never report less than segment values in paused */
-      if (last != -1)
-        *cur = MAX (last, *cur);
-    } else {
-      /* never report more than last seen position in playing */
-      if (last != -1)
-        *cur = MIN (last, *cur);
-    }
+    /* never report more than last seen position */
+    if (last != -1)
+      *cur = MIN (last, *cur);
 
     GST_DEBUG_OBJECT (basesink,
         "now %" GST_TIME_FORMAT " - base_time %" GST_TIME_FORMAT " - base %"
