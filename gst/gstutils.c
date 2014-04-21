@@ -2459,12 +2459,16 @@ gst_pad_proxy_query_accept_caps (GstPad * pad, GstQuery * query)
 
   data.query = query;
   /* value to hold the return, by default it holds TRUE */
+  /* FIXME: TRUE is wrong when there are no pads */
   data.ret = TRUE;
 
   gst_pad_forward (pad, (GstPadForwardFunction) query_accept_caps_func, &data);
   gst_query_set_accept_caps_result (query, data.ret);
 
-  return TRUE;
+  GST_CAT_DEBUG_OBJECT (GST_CAT_PADS, pad, "proxying accept caps query: %d",
+      data.ret);
+
+  return data.ret;
 }
 
 typedef struct
@@ -2538,6 +2542,7 @@ gst_pad_proxy_query_caps (GstPad * pad, GstQuery * query)
   gst_query_set_caps_result (query, result);
   gst_caps_unref (result);
 
+  /* FIXME: return something depending on the processing */
   return TRUE;
 }
 
@@ -3416,6 +3421,13 @@ gst_util_fraction_multiply (gint a_n, gint a_d, gint b_n, gint b_d,
   g_return_val_if_fail (res_d != NULL, FALSE);
   g_return_val_if_fail (a_d != 0, FALSE);
   g_return_val_if_fail (b_d != 0, FALSE);
+
+  /* early out if either is 0, as its gcd would be 0 */
+  if (a_n == 0 || b_n == 0) {
+    *res_n = 0;
+    *res_d = 1;
+    return TRUE;
+  }
 
   gcd = gst_util_greatest_common_divisor (a_n, a_d);
   a_n /= gcd;

@@ -71,12 +71,16 @@ libgstreamer_@GST_API_VERSION@_la_SOURCES = \
 	gstcontrolsource.c \
 	gstdatetime.c		\
 	gstdebugutils.c		\
+	gstdevice.c		\
+	gstdevicemonitor.c	\
+	gstdevicemonitorfactory.c \
 	gstelement.c		\
 	gstelementfactory.c	\
 	gsterror.c		\
 	gstevent.c		\
 	gstformat.c		\
 	gstghostpad.c		\
+	gstglobaldevicemonitor.c \
 	gstinfo.c		\
 	gstiterator.c		\
 	gstatomicqueue.c	\
@@ -172,11 +176,15 @@ gst_headers =			\
 	gstdebugutils.h		\
 	gstelement.h		\
 	gstelementmetadata.h	\
+	gstdevice.h		\
+	gstdevicemonitor.h	\
+	gstdevicemonitorfactory.h \
 	gstelementfactory.h	\
 	gsterror.h		\
 	gstevent.h		\
 	gstformat.h		\
 	gstghostpad.h		\
+	gstglobaldevicemonitor.h \
 	gstinfo.h		\
 	gstiterator.h		\
 	gstatomicqueue.h	\
@@ -290,7 +298,7 @@ Gst-@GST_API_VERSION@.gir: $(INTROSPECTION_SCANNER) libgstreamer-@GST_API_VERSIO
 		--include=GLib-2.0 \
 		--include=GObject-2.0 \
 		--include=GModule-2.0 \
-		--libtool="$(top_builddir)/libtool" \
+		--libtool="${LIBTOOL}" \
 		--pkg glib-2.0 \
 		--pkg gobject-2.0 \
 		--pkg gmodule-no-export-2.0 \

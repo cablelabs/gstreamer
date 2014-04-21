@@ -265,6 +265,9 @@ gst_collect_pads_init (GstCollectPads * pads)
   pads->priv->seeking = FALSE;
   pads->priv->pending_flush_start = FALSE;
   pads->priv->pending_flush_stop = FALSE;
+
+  /* clear floating flag */
+  gst_object_ref_sink (pads);
 }
 
 static void
@@ -1731,7 +1734,9 @@ gst_collect_pads_event_default (GstCollectPads * pads, GstCollectData * data,
         if (!GST_COLLECT_PADS_STATE_IS_SET (data,
                 GST_COLLECT_PADS_STATE_WAITING))
           pads->priv->queuedpads++;
-        pads->priv->eospads--;
+        if (!g_atomic_int_get (&pads->priv->seeking)) {
+          pads->priv->eospads--;
+        }
         GST_COLLECT_PADS_STATE_UNSET (data, GST_COLLECT_PADS_STATE_EOS);
       }
       GST_COLLECT_PADS_STREAM_UNLOCK (pads);
@@ -1856,8 +1861,15 @@ typedef struct
 static gboolean
 event_forward_func (GstPad * pad, EventData * data)
 {
-  data->result &= gst_pad_push_event (pad, gst_event_ref (data->event));
+  gboolean ret = TRUE;
+  GstPad *peer = gst_pad_get_peer (pad);
 
+  if (peer) {
+    ret = gst_pad_send_event (peer, gst_event_ref (data->event));
+    gst_object_unref (peer);
+  }
+
+  data->result &= ret;
   /* Always send to all pads */
   return FALSE;
 }
@@ -1901,6 +1913,8 @@ gst_collect_pads_src_event_default (GstCollectPads * pads, GstPad * pad,
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_SEEK:{
       GstSeekFlags flags;
+
+      pads->priv->eospads = 0;
 
       GST_INFO_OBJECT (pads, "starting seek");
 

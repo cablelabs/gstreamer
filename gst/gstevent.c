@@ -51,9 +51,7 @@
  * construct and use seek events.
  * To do that gst_event_new_seek() is used to create a seek event. It takes
  * the needed parameters to specify seeking time and mode.
- * <example>
- * <title>performing a seek on a pipeline</title>
- *   <programlisting>
+ * |[
  *   GstEvent *event;
  *   gboolean result;
  *   ...
@@ -69,8 +67,7 @@
  *   if (!result)
  *     g_warning ("seek failed");
  *   ...
- *   </programlisting>
- * </example>
+ * ]|
  *
  * Last reviewed on 2012-03-28 (0.11.3)
  */
@@ -93,6 +90,7 @@ typedef struct
   GstEvent event;
 
   GstStructure *structure;
+  gint64 running_time_offset;
 } GstEventImpl;
 
 #define GST_EVENT_STRUCTURE(e)  (((GstEventImpl *)(e))->structure)
@@ -254,6 +252,10 @@ _gst_event_copy (GstEvent * event)
   } else {
     GST_EVENT_STRUCTURE (copy) = NULL;
   }
+
+  ((GstEventImpl *) copy)->running_time_offset =
+      ((GstEventImpl *) event)->running_time_offset;
+
   return GST_EVENT_CAST (copy);
 }
 
@@ -267,6 +269,7 @@ gst_event_init (GstEventImpl * event, GstEventType type)
   GST_EVENT_TYPE (event) = type;
   GST_EVENT_TIMESTAMP (event) = GST_CLOCK_TIME_NONE;
   GST_EVENT_SEQNUM (event) = gst_util_seqnum_next ();
+  event->running_time_offset = 0;
 }
 
 
@@ -443,6 +446,54 @@ gst_event_set_seqnum (GstEvent * event, guint32 seqnum)
   g_return_if_fail (GST_IS_EVENT (event));
 
   GST_EVENT_SEQNUM (event) = seqnum;
+}
+
+/**
+ * gst_event_get_running_time_offset:
+ * @event: A #GstEvent.
+ *
+ * Retrieve the accumulated running time offset of the event.
+ *
+ * Events passing through #GstPads that have a running time
+ * offset set via gst_pad_set_offset() will get their offset
+ * adjusted according to the pad's offset.
+ *
+ * If the event contains any information that related to the
+ * running time, this information will need to be updated
+ * before usage with this offset.
+ *
+ * Returns: The event's running time offset
+ *
+ * MT safe.
+ *
+ * Since: 1.4
+ */
+gint64
+gst_event_get_running_time_offset (GstEvent * event)
+{
+  g_return_val_if_fail (GST_IS_EVENT (event), 0);
+
+  return ((GstEventImpl *) event)->running_time_offset;
+}
+
+/**
+ * gst_event_set_running_time_offset:
+ * @event: A #GstEvent.
+ * @offset: A the new running time offset
+ *
+ * Set the running time offset of a event. See
+ * gst_event_get_running_time_offset() for more information.
+ *
+ * MT safe.
+ *
+ * Since: 1.4
+ */
+void
+gst_event_set_running_time_offset (GstEvent * event, gint64 offset)
+{
+  g_return_if_fail (GST_IS_EVENT (event));
+
+  ((GstEventImpl *) event)->running_time_offset = offset;
 }
 
 /**
@@ -979,6 +1030,8 @@ gst_event_new_qos (GstQOSType type, gdouble proportion,
  *
  * Get the type, proportion, diff and timestamp in the qos event. See
  * gst_event_new_qos() for more information about the different QoS values.
+ *
+ * @timestamp will be adjusted for any pad offsets of pads it was passing through.
  */
 void
 gst_event_parse_qos (GstEvent * event, GstQOSType * type,
@@ -1002,10 +1055,18 @@ gst_event_parse_qos (GstEvent * event, GstQOSType * type,
     *diff =
         g_value_get_int64 (gst_structure_id_get_value (structure,
             GST_QUARK (DIFF)));
-  if (timestamp)
+  if (timestamp) {
+    gint64 offset = gst_event_get_running_time_offset (event);
+
     *timestamp =
         g_value_get_uint64 (gst_structure_id_get_value (structure,
             GST_QUARK (TIMESTAMP)));
+    /* Catch underflows */
+    if (*timestamp > -offset)
+      *timestamp += offset;
+    else
+      *timestamp = 0;
+  }
 }
 
 /**

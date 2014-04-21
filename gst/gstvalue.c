@@ -1111,8 +1111,8 @@ gst_value_compare_int_range (const GValue * value1, const GValue * value2)
      and bounds lie on the same value */
   if (n1 > 1) {
     if (INT_RANGE_STEP (value1) == INT_RANGE_STEP (value2) &&
-        INT_RANGE_STEP (value1) == INT_RANGE_STEP (value2) &&
-        INT_RANGE_STEP (value1) == INT_RANGE_STEP (value2)) {
+        INT_RANGE_MIN (value1) == INT_RANGE_MIN (value2) &&
+        INT_RANGE_MAX (value1) == INT_RANGE_MAX (value2)) {
       return GST_VALUE_EQUAL;
     }
     return GST_VALUE_UNORDERED;
@@ -1366,8 +1366,8 @@ gst_value_compare_int64_range (const GValue * value1, const GValue * value2)
      and bounds lie on the same value */
   if (n1 > 1) {
     if (INT64_RANGE_STEP (value1) == INT64_RANGE_STEP (value2) &&
-        INT64_RANGE_STEP (value1) == INT64_RANGE_STEP (value2) &&
-        INT64_RANGE_STEP (value1) == INT64_RANGE_STEP (value2)) {
+        INT64_RANGE_MIN (value1) == INT64_RANGE_MIN (value2) &&
+        INT64_RANGE_MAX (value1) == INT64_RANGE_MAX (value2)) {
       return GST_VALUE_EQUAL;
     }
     return GST_VALUE_UNORDERED;
@@ -3793,6 +3793,9 @@ gst_value_subtract_int_int_range (GValue * dest, const GValue * minuend,
   gint step = gst_value_get_int_range_step (subtrahend);
   gint val = g_value_get_int (minuend);
 
+  if (step == 0)
+    return FALSE;
+
   /* subtracting a range from an int only works if the int is not in the
    * range */
   if (val < min || val > max || val % step) {
@@ -3870,6 +3873,9 @@ gst_value_subtract_int_range_int (GValue * dest, const GValue * minuend,
 
   g_return_val_if_fail (min < max, FALSE);
 
+  if (step == 0)
+    return FALSE;
+
   /* value is outside of the range, return range unchanged */
   if (val < min || val > max || val % step) {
     if (dest)
@@ -3911,6 +3917,9 @@ gst_value_subtract_int_range_int_range (GValue * dest, const GValue * minuend,
   }
   step = step1;
 
+  if (step == 0)
+    return FALSE;
+
   if (max2 >= max1 && min2 <= min1) {
     return FALSE;
   } else if (max2 >= max1) {
@@ -3934,6 +3943,8 @@ gst_value_subtract_int64_int64_range (GValue * dest, const GValue * minuend,
   gint64 step = gst_value_get_int64_range_step (subtrahend);
   gint64 val = g_value_get_int64 (minuend);
 
+  if (step == 0)
+    return FALSE;
   /* subtracting a range from an int64 only works if the int64 is not in the
    * range */
   if (val < min || val > max || val % step) {
@@ -4011,6 +4022,9 @@ gst_value_subtract_int64_range_int64 (GValue * dest, const GValue * minuend,
 
   g_return_val_if_fail (min < max, FALSE);
 
+  if (step == 0)
+    return FALSE;
+
   /* value is outside of the range, return range unchanged */
   if (val < min || val > max || val % step) {
     if (dest)
@@ -4051,6 +4065,10 @@ gst_value_subtract_int64_range_int64_range (GValue * dest,
     g_assert (FALSE);
     return FALSE;
   }
+
+  if (step1 == 0)
+    return FALSE;
+
   step = step1;
 
   if (max2 >= max1 && min2 <= min1) {
@@ -4408,6 +4426,8 @@ gst_value_list_equals_range (const GValue * list, const GValue * value)
     const gint rmin = gst_value_get_int_range_min (value);
     const gint rmax = gst_value_get_int_range_max (value);
     const gint rstep = gst_value_get_int_range_step (value);
+    if (rstep == 0)
+      return FALSE;
     /* note: this will overflow for min 0 and max INT_MAX, but this
        would only be equal to a list of INT_MAX elements, which seems
        very unlikely */
@@ -4425,6 +4445,8 @@ gst_value_list_equals_range (const GValue * list, const GValue * value)
     const gint64 rmax = gst_value_get_int64_range_max (value);
     const gint64 rstep = gst_value_get_int64_range_step (value);
     GST_DEBUG ("List/range of int64s");
+    if (rstep == 0)
+      return FALSE;
     if (list_size != rmax / rstep - rmin / rstep + 1)
       return FALSE;
     for (n = 0; n < list_size; ++n) {

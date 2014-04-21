@@ -40,6 +40,9 @@ static char *_name = NULL;
 static int print_element_info (GstElementFactory * factory,
     gboolean print_names);
 
+/* *INDENT-OFF* */
+G_GNUC_PRINTF (1, 2)
+/* *INDENT-ON* */
 static void
 n_print (const char *format, ...)
 {
@@ -480,6 +483,12 @@ print_element_properties_info (GstElement * element)
         } else if (G_IS_PARAM_SPEC_BOXED (param)) {
           n_print ("%-23.23s Boxed pointer of type \"%s\"", "",
               g_type_name (param->value_type));
+          if (param->value_type == GST_TYPE_STRUCTURE) {
+            const GstStructure *s = gst_value_get_structure (&value);
+            if (s)
+              gst_structure_foreach (s, print_field,
+                  (gpointer) "                           ");
+          }
         } else if (G_IS_PARAM_SPEC_POINTER (param)) {
           if (param->value_type != G_TYPE_POINTER) {
             n_print ("%-23.23s Pointer of type \"%s\".", "",
@@ -507,8 +516,8 @@ print_element_properties_info (GstElement * element)
               gst_value_get_fraction_numerator (&value),
               gst_value_get_fraction_denominator (&value));
         } else {
-          n_print ("%-23.23s Unknown type %ld \"%s\"", "", param->value_type,
-              g_type_name (param->value_type));
+          n_print ("%-23.23s Unknown type %ld \"%s\"", "",
+              (glong) param->value_type, g_type_name (param->value_type));
         }
         break;
     }
@@ -617,7 +626,7 @@ print_clocking_info (GstElement * element)
 
   if (!requires_clock && !provides_clock) {
     n_print ("\n");
-    n_print ("Element has no clocking capabilities.");
+    n_print ("Element has no clocking capabilities.\n");
     return;
   }
 
@@ -693,8 +702,6 @@ print_pad_info (GstElement * element)
 
     pad = GST_PAD (pads->data);
     pads = g_list_next (pads);
-
-    n_print ("");
 
     name = gst_pad_get_name (pad);
     if (gst_pad_get_direction (pad) == GST_PAD_SRC)
@@ -1132,6 +1139,7 @@ print_plugin_features (GstPlugin * plugin)
   gint num_features = 0;
   gint num_elements = 0;
   gint num_typefinders = 0;
+  gint num_devmonitors = 0;
   gint num_other = 0;
 
   origlist = features =
@@ -1172,6 +1180,14 @@ print_plugin_features (GstPlugin * plugin)
             gst_plugin_feature_get_name (feature));
 
       num_typefinders++;
+    } else if (GST_IS_DEVICE_MONITOR_FACTORY (feature)) {
+      GstDeviceMonitorFactory *factory;
+
+      factory = GST_DEVICE_MONITOR_FACTORY (feature);
+      n_print ("  %s: %s\n", GST_OBJECT_NAME (factory),
+          gst_device_monitor_factory_get_metadata (factory,
+              GST_ELEMENT_METADATA_LONGNAME));
+      num_devmonitors++;
     } else if (feature) {
       n_print ("  %s (%s)\n", gst_object_get_name (GST_OBJECT (feature)),
           g_type_name (G_OBJECT_TYPE (feature)));
@@ -1189,6 +1205,8 @@ print_plugin_features (GstPlugin * plugin)
     n_print ("  +-- %d elements\n", num_elements);
   if (num_typefinders > 0)
     n_print ("  +-- %d typefinders\n", num_typefinders);
+  if (num_devmonitors > 0)
+    n_print ("  +-- %d device monitors\n", num_devmonitors);
   if (num_other > 0)
     n_print ("  +-- %d other objects\n", num_other);
 

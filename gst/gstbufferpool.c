@@ -207,7 +207,7 @@ gst_buffer_pool_finalize (GObject * object)
  *
  * Creates a new #GstBufferPool instance.
  *
- * Returns: (transfer full): a new #GstBufferPool instance
+ * Returns: (transfer floating): a new #GstBufferPool instance
  */
 GstBufferPool *
 gst_buffer_pool_new (void)
@@ -270,7 +270,14 @@ do_alloc_buffer (GstBufferPool * pool, GstBuffer ** buffer,
   if (G_UNLIKELY (result != GST_FLOW_OK))
     goto alloc_failed;
 
+  /* lock all metadata and mark as pooled, we want this to remain on
+   * the buffer and we want to remove any other metadata that gets added
+   * later */
   gst_buffer_foreach_meta (*buffer, mark_meta_pooled, pool);
+
+  /* un-tag memory, this is how we expect the buffer when it is
+   * released again */
+  GST_BUFFER_FLAG_UNSET (*buffer, GST_BUFFER_FLAG_TAG_MEMORY);
 
   GST_LOG_OBJECT (pool, "allocated buffer %d/%d, %p", cur_buffers,
       max_buffers, buffer);
@@ -359,27 +366,36 @@ default_free_buffer (GstBufferPool * pool, GstBuffer * buffer)
   gst_buffer_unref (buffer);
 }
 
+static void
+do_free_buffer (GstBufferPool * pool, GstBuffer * buffer)
+{
+  GstBufferPoolPrivate *priv;
+  GstBufferPoolClass *pclass;
+
+  priv = pool->priv;
+  pclass = GST_BUFFER_POOL_GET_CLASS (pool);
+
+  g_atomic_int_add (&priv->cur_buffers, -1);
+  GST_LOG_OBJECT (pool, "freeing buffer %p (%u left)", buffer,
+      priv->cur_buffers);
+
+  if (G_LIKELY (pclass->free_buffer))
+    pclass->free_buffer (pool, buffer);
+}
+
 /* must be called with the lock */
 static gboolean
 default_stop (GstBufferPool * pool)
 {
   GstBufferPoolPrivate *priv = pool->priv;
   GstBuffer *buffer;
-  GstBufferPoolClass *pclass;
-
-  pclass = GST_BUFFER_POOL_GET_CLASS (pool);
 
   /* clear the pool */
   while ((buffer = gst_atomic_queue_pop (priv->queue))) {
-    GST_LOG_OBJECT (pool, "freeing buffer %p", buffer);
     gst_poll_read_control (priv->poll);
-
-    if (G_LIKELY (pclass->free_buffer))
-      pclass->free_buffer (pool, buffer);
+    do_free_buffer (pool, buffer);
   }
-  priv->cur_buffers = 0;
-
-  return TRUE;
+  return priv->cur_buffers == 0;
 }
 
 /* must be called with the lock */
@@ -1055,7 +1071,7 @@ remove_meta_unpooled (GstBuffer * buffer, GstMeta ** meta, gpointer user_data)
 static void
 default_reset_buffer (GstBufferPool * pool, GstBuffer * buffer)
 {
-  GST_BUFFER_FLAGS (buffer) = 0;
+  GST_BUFFER_FLAGS (buffer) &= GST_BUFFER_FLAG_TAG_MEMORY;
 
   GST_BUFFER_PTS (buffer) = GST_CLOCK_TIME_NONE;
   GST_BUFFER_DTS (buffer) = GST_CLOCK_TIME_NONE;
@@ -1071,7 +1087,7 @@ default_reset_buffer (GstBufferPool * pool, GstBuffer * buffer)
  * gst_buffer_pool_acquire_buffer:
  * @pool: a #GstBufferPool
  * @buffer: (out): a location for a #GstBuffer
- * @params: (transfer none) (allow-none) parameters.
+ * @params: (transfer none) (allow-none): parameters.
  *
  * Acquire a buffer from @pool. @buffer should point to a memory location that
  * can hold a pointer to the new buffer.
@@ -1117,10 +1133,28 @@ gst_buffer_pool_acquire_buffer (GstBufferPool * pool, GstBuffer ** buffer,
 static void
 default_release_buffer (GstBufferPool * pool, GstBuffer * buffer)
 {
+  GST_LOG_OBJECT (pool, "released buffer %p %d", buffer,
+      GST_MINI_OBJECT_FLAGS (buffer));
+
+  /* memory should be untouched */
+  if (GST_BUFFER_FLAG_IS_SET (buffer, GST_BUFFER_FLAG_TAG_MEMORY))
+    goto discard;
+
+  /* all memory should be exclusive to this buffer (and thus be writable) */
+  if (!gst_buffer_is_all_memory_writable (buffer))
+    goto discard;
+
   /* keep it around in our queue */
-  GST_LOG_OBJECT (pool, "released buffer %p", buffer);
   gst_atomic_queue_push (pool->priv->queue, buffer);
   gst_poll_write_control (pool->priv->poll);
+
+  return;
+
+discard:
+  {
+    do_free_buffer (pool, buffer);
+    return;
+  }
 }
 
 /**

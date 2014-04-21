@@ -192,6 +192,8 @@ typedef struct _GstBufferPool GstBufferPool;
  * @GST_BUFFER_FLAG_DROPPABLE:   the buffer can be dropped without breaking the
  *                               stream, for example to reduce bandwidth.
  * @GST_BUFFER_FLAG_DELTA_UNIT:  this unit cannot be decoded independently.
+ * @GST_BUFFER_FLAG_TAG_MEMORY:  this flag is set when memory of the buffer
+ *                               is added/removed
  * @GST_BUFFER_FLAG_LAST:        additional media specific flags can be added starting from
  *                               this flag.
  *
@@ -208,6 +210,7 @@ typedef enum {
   GST_BUFFER_FLAG_GAP         = (GST_MINI_OBJECT_FLAG_LAST << 7),
   GST_BUFFER_FLAG_DROPPABLE   = (GST_MINI_OBJECT_FLAG_LAST << 8),
   GST_BUFFER_FLAG_DELTA_UNIT  = (GST_MINI_OBJECT_FLAG_LAST << 9),
+  GST_BUFFER_FLAG_TAG_MEMORY  = (GST_MINI_OBJECT_FLAG_LAST << 10),
 
   GST_BUFFER_FLAG_LAST        = (GST_MINI_OBJECT_FLAG_LAST << 16)
 } GstBufferFlags;
@@ -283,6 +286,9 @@ void        gst_buffer_remove_all_memory    (GstBuffer *buffer);
 
 gboolean    gst_buffer_find_memory         (GstBuffer *buffer, gsize offset, gsize size,
                                             guint *idx, guint *length, gsize *skip);
+
+gboolean    gst_buffer_is_memory_range_writable  (GstBuffer *buffer, guint idx, gint length);
+gboolean    gst_buffer_is_all_memory_writable    (GstBuffer *buffer);
 
 gsize       gst_buffer_fill                (GstBuffer *buffer, gsize offset,
                                             gconstpointer src, gsize size);

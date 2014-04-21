@@ -506,10 +506,13 @@ gst_selector_pad_event (GstPad * pad, GstObject * parent, GstEvent * event)
 
       gst_event_parse_tag (event, &tags);
 
+      GST_OBJECT_LOCK (selpad);
       oldtags = selpad->tags;
 
       newtags = gst_tag_list_merge (oldtags, tags, GST_TAG_MERGE_REPLACE);
       selpad->tags = newtags;
+      GST_OBJECT_UNLOCK (selpad);
+
       if (oldtags)
         gst_tag_list_unref (oldtags);
       GST_DEBUG_OBJECT (pad, "received tags %" GST_PTR_FORMAT, newtags);
@@ -812,7 +815,7 @@ gst_input_selector_debug_cached_buffers (GstInputSelector * sel)
           GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (cached_buffer->buffer)));
     }
     str = g_string_free (timestamps, FALSE);
-    GST_DEBUG_OBJECT (selpad, str);
+    GST_DEBUG_OBJECT (selpad, "%s", str);
     g_free (str);
   }
 }

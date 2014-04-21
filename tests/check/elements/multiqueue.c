@@ -389,7 +389,8 @@ mq_dummypad_event (GstPad * sinkpad, GstObject * parent, GstEvent * event)
     g_mutex_lock (pad_data->mutex);
 
     /* Accumulate that we've seen the EOS and signal the main thread */
-    *(pad_data->eos_count_ptr) += 1;
+    if (pad_data->eos_count_ptr)
+      *(pad_data->eos_count_ptr) += 1;
 
     GST_DEBUG ("EOS on pad %u", pad_data->pad_num);
 
@@ -634,7 +635,10 @@ GST_START_TEST (test_sparse_stream)
 
     pad_data[i].pad_num = i;
     pad_data[i].max_linked_id_ptr = &max_linked_id;
-    pad_data[i].eos_count_ptr = &eos_seen;
+    if (i == 0)
+      pad_data[i].eos_count_ptr = &eos_seen;
+    else
+      pad_data[i].eos_count_ptr = NULL;
     pad_data[i].is_linked = (i == 0) ? TRUE : FALSE;
     pad_data[i].n_linked = 1;
     pad_data[i].cond = &cond;
@@ -698,8 +702,8 @@ GST_START_TEST (test_sparse_stream)
 
   /* Wait while the buffers are processed */
   g_mutex_lock (&mutex);
-  /* We wait until EOS has been pushed on all pads */
-  while (eos_seen < 2) {
+  /* We wait until EOS has been pushed on pad 1 */
+  while (eos_seen < 1) {
     g_cond_wait (&cond, &mutex);
   }
   g_mutex_unlock (&mutex);
@@ -725,6 +729,93 @@ GST_START_TEST (test_sparse_stream)
 
 GST_END_TEST;
 
+static gpointer
+pad_push_thread (gpointer data)
+{
+  GstPad *pad = data;
+  GstBuffer *buf;
+
+  buf = gst_buffer_new ();
+  gst_pad_push (pad, buf);
+
+  return NULL;
+}
+
+GST_START_TEST (test_limit_changes)
+{
+  /* This test creates a multiqueue with 1 stream. The limit of the queue
+   * is two buffers, we check if we block once this is reached. Then we
+   * change the limit to three buffers and check if this is waking up
+   * the queue and we get the third buffer.
+   */
+  GstElement *pipe;
+  GstElement *mq, *fakesink;
+  GstPad *inputpad;
+  GstPad *mq_sinkpad;
+  GstSegment segment;
+  GThread *thread;
+
+  pipe = gst_pipeline_new ("testbin");
+  mq = gst_element_factory_make ("multiqueue", NULL);
+  fail_unless (mq != NULL);
+  gst_bin_add (GST_BIN (pipe), mq);
+
+  fakesink = gst_element_factory_make ("fakesink", NULL);
+  fail_unless (fakesink != NULL);
+  gst_bin_add (GST_BIN (pipe), fakesink);
+
+  g_object_set (mq,
+      "max-size-bytes", (guint) 0,
+      "max-size-buffers", (guint) 2,
+      "max-size-time", (guint64) 0,
+      "extra-size-bytes", (guint) 0,
+      "extra-size-buffers", (guint) 0, "extra-size-time", (guint64) 0, NULL);
+
+  gst_segment_init (&segment, GST_FORMAT_TIME);
+
+  inputpad = gst_pad_new ("dummysrc", GST_PAD_SRC);
+  gst_pad_set_query_function (inputpad, mq_dummypad_query);
+
+  mq_sinkpad = gst_element_get_request_pad (mq, "sink_%u");
+  fail_unless (mq_sinkpad != NULL);
+  fail_unless (gst_pad_link (inputpad, mq_sinkpad) == GST_PAD_LINK_OK);
+
+  gst_pad_set_active (inputpad, TRUE);
+
+  gst_pad_push_event (inputpad, gst_event_new_stream_start ("test"));
+  gst_pad_push_event (inputpad, gst_event_new_segment (&segment));
+
+  gst_object_unref (mq_sinkpad);
+
+  fail_unless (gst_element_link (mq, fakesink));
+
+  gst_element_set_state (pipe, GST_STATE_PAUSED);
+
+  thread = g_thread_new ("push1", pad_push_thread, inputpad);
+  g_thread_join (thread);
+  thread = g_thread_new ("push2", pad_push_thread, inputpad);
+  g_thread_join (thread);
+  thread = g_thread_new ("push3", pad_push_thread, inputpad);
+  g_thread_join (thread);
+  thread = g_thread_new ("push4", pad_push_thread, inputpad);
+
+  /* Wait until we are actually blocking... we unfortunately can't
+   * know that without sleeping */
+  sleep (1);
+  g_object_set (mq, "max-size-buffers", (guint) 3, NULL);
+  g_thread_join (thread);
+
+  g_object_set (mq, "max-size-buffers", (guint) 4, NULL);
+  thread = g_thread_new ("push5", pad_push_thread, inputpad);
+  g_thread_join (thread);
+
+  gst_element_set_state (pipe, GST_STATE_NULL);
+  gst_object_unref (inputpad);
+  gst_object_unref (pipe);
+}
+
+GST_END_TEST;
+
 static Suite *
 multiqueue_suite (void)
 {
@@ -744,6 +835,8 @@ multiqueue_suite (void)
   tcase_skip_broken_test (tc_chain, test_output_order);
 
   tcase_add_test (tc_chain, test_sparse_stream);
+  tcase_add_test (tc_chain, test_limit_changes);
+
   return s;
 }
 

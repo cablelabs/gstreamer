@@ -26,6 +26,10 @@
  *
  * These macros and functions are for internal use of the unit tests found
  * inside the 'check' directories of various GStreamer packages.
+ *
+ * One notable feature is that one can use the environment variables GST_CHECK
+ * and GST_CHECK_IGNORE to select which tests to run or skip. Both variables
+ * can contain a comman separated list of test name globs (e.g. test_*).
  */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -259,10 +263,47 @@ GstPad *
 gst_check_setup_src_pad_by_name (GstElement * element,
     GstStaticPadTemplate * tmpl, const gchar * name)
 {
+  GstPadTemplate *ptmpl = gst_static_pad_template_get (tmpl);
+  GstPad *srcpad;
+
+  srcpad =
+      gst_check_setup_src_pad_by_name_from_template (element, ptmpl, "sink");
+
+  gst_object_unref (ptmpl);
+
+  return srcpad;
+}
+
+/**
+ * gst_check_setup_src_pad_from_template:
+ * @element: element to setup pad on
+ * @tmpl: pad template
+ *
+ * Returns: (transfer full): a new pad
+ */
+GstPad *
+gst_check_setup_src_pad_from_template (GstElement * element,
+    GstPadTemplate * tmpl)
+{
+  return gst_check_setup_src_pad_by_name_from_template (element, tmpl, "sink");
+}
+
+/**
+ * gst_check_setup_src_pad_by_name_from_template:
+ * @element: element to setup pad on
+ * @tmpl: pad template
+ * @name: name
+ *
+ * Returns: (transfer full): a new pad
+ */
+GstPad *
+gst_check_setup_src_pad_by_name_from_template (GstElement * element,
+    GstPadTemplate * tmpl, const gchar * name)
+{
   GstPad *srcpad, *sinkpad;
 
   /* sending pad */
-  srcpad = gst_pad_new_from_static_template (tmpl, "src");
+  srcpad = gst_pad_new_from_template (tmpl, "src");
   GST_DEBUG_OBJECT (element, "setting up sending pad %p", srcpad);
   fail_if (srcpad == NULL, "Could not create a srcpad");
   ASSERT_OBJECT_REFCOUNT (srcpad, "srcpad", 1);
@@ -345,10 +386,47 @@ GstPad *
 gst_check_setup_sink_pad_by_name (GstElement * element,
     GstStaticPadTemplate * tmpl, const gchar * name)
 {
+  GstPadTemplate *ptmpl = gst_static_pad_template_get (tmpl);
+  GstPad *sinkpad;
+
+  sinkpad =
+      gst_check_setup_sink_pad_by_name_from_template (element, ptmpl, "src");
+
+  gst_object_unref (ptmpl);
+
+  return sinkpad;
+}
+
+/**
+ * gst_check_setup_sink_pad_from_template:
+ * @element: element to setup pad on
+ * @tmpl: pad template
+ *
+ * Returns: (transfer full): a new pad
+ */
+GstPad *
+gst_check_setup_sink_pad_from_template (GstElement * element,
+    GstPadTemplate * tmpl)
+{
+  return gst_check_setup_sink_pad_by_name_from_template (element, tmpl, "src");
+}
+
+/**
+ * gst_check_setup_sink_pad_by_name_from_template:
+ * @element: element to setup pad on
+ * @tmpl: pad template
+ * @name: name
+ *
+ * Returns: (transfer full): a new pad
+ */
+GstPad *
+gst_check_setup_sink_pad_by_name_from_template (GstElement * element,
+    GstPadTemplate * tmpl, const gchar * name)
+{
   GstPad *srcpad, *sinkpad;
 
   /* receiving pad */
-  sinkpad = gst_pad_new_from_static_template (tmpl, "sink");
+  sinkpad = gst_pad_new_from_template (tmpl, "sink");
   GST_DEBUG_OBJECT (element, "setting up receiving pad %p", sinkpad);
   fail_if (sinkpad == NULL, "Could not create a sinkpad");
 
@@ -697,18 +775,26 @@ gst_check_run_suite (Suite * suite, const gchar * name, const gchar * fname)
   return nf;
 }
 
-gboolean
-_gst_check_run_test_func (const gchar * func_name)
+static gboolean
+gst_check_have_checks_list (const gchar * env_var_name)
+{
+  const gchar *env_val;
+
+  env_val = g_getenv (env_var_name);
+  return (env_val != NULL && *env_val != '\0');
+}
+
+static gboolean
+gst_check_func_is_in_list (const gchar * env_var, const gchar * func_name)
 {
   const gchar *gst_checks;
   gboolean res = FALSE;
   gchar **funcs, **f;
 
-  gst_checks = g_getenv ("GST_CHECKS");
+  gst_checks = g_getenv (env_var);
 
-  /* no filter specified => run all checks */
   if (gst_checks == NULL || *gst_checks == '\0')
-    return TRUE;
+    return FALSE;
 
   /* only run specified functions */
   funcs = g_strsplit (gst_checks, ",", -1);
@@ -720,6 +806,21 @@ _gst_check_run_test_func (const gchar * func_name)
   }
   g_strfreev (funcs);
   return res;
+}
+
+gboolean
+_gst_check_run_test_func (const gchar * func_name)
+{
+  /* if we have a whitelist, run it only if it's in the whitelist */
+  if (gst_check_have_checks_list ("GST_CHECKS"))
+    return gst_check_func_is_in_list ("GST_CHECKS", func_name);
+
+  /* if we have a blacklist, run it only if it's not in the blacklist */
+  if (gst_check_have_checks_list ("GST_CHECKS_IGNORE"))
+    return !gst_check_func_is_in_list ("GST_CHECKS_IGNORE", func_name);
+
+  /* no filter specified => run all checks */
+  return TRUE;
 }
 
 /**
