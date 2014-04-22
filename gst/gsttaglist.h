@@ -1063,6 +1063,15 @@ gst_tag_list_copy (const GstTagList * taglist)
  */
 #define GST_TAG_INTERPRETED_BY                    "interpreted-by"
 /**
+ * GST_TAG_TRACK_ID:
+ *
+ * The track ID from the container. For example, the PID in MPEG-TS, or the
+ * TrackUID in Matroska. (string)
+ *
+ * Since: 1.4
+ */
+#define GST_TAG_TRACK_ID "track-id"
+/**
  * GST_TAG_MIDI_BASE_NOTE:
  *
  * <ulink url="http://en.wikipedia.org/wiki/Note#Note_designation_in_accordance_with_octave_name">Midi note number</ulink>
